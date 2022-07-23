@@ -242,9 +242,9 @@ class Index extends \Magento\Framework\App\Action\Action
     public function execute()
     {
         try {
-            // return script if path is script
+            $response = NULL;
             $path = $this->getRequest()->getParam('path');
-            if ($path == 'companies') {
+            if ($path == 'companies.json') {
                 $response = $this->getCompanies();
             } else if ($path == 'script') {
                 $punchout_id = $this->session->getPunchoutId();
@@ -258,6 +258,8 @@ class Index extends \Magento\Framework\App\Action\Action
                     ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
                     ->setHeader('Content-Type', 'application/javascript;charset=UTF-8')
                     ->setContents($response);
+            } else if ($path == 'cart.json') {
+                $response = $this->getCart();
             } else if ($path == 'cart') {
                 $punchout_id = $this->session->getPunchoutId();
                 if (isset($punchout_id)) {
@@ -271,7 +273,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 } else {
                     $response = ['message' => "You're not in a punchout session"];
                 }
-            } else if ($path == 'order') {
+            } else if ($path == 'order.json') {
                 $token = $this->getRequest()->getParam('token');
                 $res = $this->post('https://punchout.cloud/authorize', ["authorization" => $token]);
                 if ($res["authorized"] == true) {
@@ -281,6 +283,7 @@ class Index extends \Magento\Framework\App\Action\Action
                     $response = ["error" => "You're not authorized"];
                 }
             }
+
 
             if ($response != NULL) {
                 // return json response
