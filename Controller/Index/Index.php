@@ -199,6 +199,17 @@ class Index extends \Magento\Framework\App\Action\Action
         return $customer;
     }
 
+    private function clearCart() {
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance(); 
+        $cart = $objectManager->get(\Magento\Checkout\Model\Cart::class);
+        $quoteItems = $cart->getQuote()->getItemsCollection();
+		foreach($quoteItems as $item)
+		{
+			$cart->removeItem($item->getId());
+		}
+        $cart->save(); 
+    }
+
     private function getCart()
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
@@ -336,6 +347,8 @@ class Index extends \Magento\Framework\App\Action\Action
                     $this->cookieManager->deleteCookie('mage-cache-sessid', $metadata);
                 }
 
+                $this->clearCart();
+                
                 // Add punchout session ID to customer session
                 $this->session->setPunchoutId($res['punchout_id']);
 
