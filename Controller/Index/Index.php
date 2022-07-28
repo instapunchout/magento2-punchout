@@ -175,6 +175,14 @@ class Index extends \Magento\Framework\App\Action\Action
             $customer->setExtensionAttributes($attributes);
             $updated = true;
         }
+	    
+	if (isset($res['properties']) && isset($res['properties']['custom_attributes'])) {
+            $customer = $this->customerRepository->get($email);
+            foreach ($res['properties']['custom_attributes'] as $key => $value) {
+                $customer->setCustomAttribute($key, $value);
+            }
+            $updated = true;
+	}
 
         if (isset($res['company_id'])) {
             if (class_exists(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class)) {
