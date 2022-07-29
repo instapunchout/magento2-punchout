@@ -105,7 +105,7 @@ class Index extends \Magento\Framework\App\Action\Action
         \Magento\Quote\Api\CartRepositoryInterface $cartRepository,
         \Magento\Sales\Model\Service\OrderService $orderService,
         \Magento\Quote\Model\Quote\Address\Rate $shippingRate,
-        \Magento\Catalog\Model\ProductFactory $productFactory,
+        \Magento\Catalog\Model\ProductFactory $productFactory
     ) {
         parent::__construct($context);
         $this->session = $session;
