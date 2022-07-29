@@ -149,20 +149,19 @@ class Index extends \Magento\Framework\App\Action\Action
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $collection = $objectManager->get('\Magento\Customer\Model\ResourceModel\Group\Collection');
-        $websites = $this->storeManager->getWebsites();
-        $websites_data = [];
-        foreach ($websites as $website) {
-            $websites_data[] = ['value' => $website->getId(), 'label' => $website->getName()];
+        $websites = [];
+        foreach ($this->storeManager->getWebsites() as $website) {
+            $websites[] = ['value' => $website->getId(), 'label' => $website->getName()];
         }
-        $stores_data = [];
+        $stores = [];
         foreach ($this->storeManager->getStores() as $store) {
-            $stores_data[] = ['value' => $store->getId(), 'label' => $store->getName()];
+            $stores[] = ['value' => $store->getId(), 'label' => $store->getName()];
         }
         return [
             "companies" => $this->getCompanies(),
             "groups" => $collection->toOptionArray(),
-            "websites" => $websites_data,
-            "stores" => $stores_data,
+            "websites" => $websites,
+            "stores" => $stores,
         ];
     }
 
