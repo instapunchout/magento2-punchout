@@ -132,7 +132,7 @@ class Index extends \Magento\Framework\App\Action\Action
         } else if (class_exists(\Magento\Company\Model\CompanyRepository::class)) {
             $repo = $objectManager->get('\Magento\Company\Model\CompanyRepository');
         } else {
-            return ["error" => "Company Repository not found"];
+            return [];
         }
         $builder = $objectManager->get(\Magento\Framework\Api\SearchCriteriaBuilder::class);
         $searchCriteria = $builder->create();
@@ -142,7 +142,28 @@ class Index extends \Magento\Framework\App\Action\Action
             $company_name = $value->getCompanyName();
             $companies[] = ['id' => $value->getId(), 'name' => isset($company_name) ? $company_name : $value->getName()];
         }
-        return ["data" => $companies];
+        return $companies;
+    }
+
+    private function getOptions()
+    {
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+        $collection = $objectManager->get('\Magento\Customer\Model\ResourceModel\Group\Collection');
+        $websites = $this->storeManager->getWebsites();
+        $websites_data = [];
+        foreach ($websites as $website) {
+            $websites_data[] = ['value' => $website->getId(), 'label' => $website->getName()];
+        }
+        $stores_data = [];
+        foreach ($this->storeManager->getStores() as $store) {
+            $stores_data[] = ['value' => $store->getId(), 'label' => $store->getName()];
+        }
+        return [
+            "companies" => $this->getCompanies(),
+            "groups" => $collection->toOptionArray(),
+            "websites" => $websites_data,
+            "stores" => $stores_data,
+        ];
     }
 
     private function prepareCustomer($res)
@@ -263,8 +284,8 @@ class Index extends \Magento\Framework\App\Action\Action
         try {
             $response = NULL;
             $path = $this->getRequest()->getParam('path');
-            if ($path == 'companies.json') {
-                $response = $this->getCompanies();
+            if ($path == 'options.json') {
+                $response = $this->getOptions();
             } else if ($path == 'script') {
                 $punchout_id = $this->session->getPunchoutId();
                 if (empty($punchout_id)) {
@@ -310,7 +331,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 return $result
                     ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
                     ->setHeader('Content-Type', 'application/json;charset=UTF-8')
-                    ->setContents(json_encode($response));
+                    ->setContents(json_encode($response, JSON_PRETTY_PRINT));
             }
 
             $resultRedirect = $this->resultRedirectFactory->create();
