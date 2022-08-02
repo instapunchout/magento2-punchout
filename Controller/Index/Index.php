@@ -448,12 +448,15 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->setCurrency();
         $cart->assignCustomer($customer); //Assign quote to customer
 
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+        $objectFactory = $objectManager->get('\Magento\Framework\DataObject\Factory');
         //add items in quote
         foreach ($orderData['items'] as $item) {
-            $product = $this->productFactory->create()->load($item['product_id']);
+            $product = $this->productFactory->create()->load($item['product']);
+            $options = $objectFactory->create($item);
             $cart->addProduct(
                 $product,
-                intval($item['quantity'])
+                $options,
             );
         }
 
@@ -461,10 +464,6 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->getBillingAddress()->addData($orderData['billing']);
         $cart->getShippingAddress()->addData($orderData['shipping']);
 
-        // Collect Rates, Set Shipping & Payment Method
-        $this->shippingRate
-            ->setCode('freeshipping_freeshipping')
-            ->getPrice(1);
 
         if ($orderData['ignore_address_validation']) {
             $cart->getBillingAddress()->setShouldIgnoreValidation(true);
@@ -472,6 +471,12 @@ class Index extends \Magento\Framework\App\Action\Action
                 $cart->getShippingAddress()->setShouldIgnoreValidation(true);
             }
         }
+
+        // Collect Rates, Set Shipping & Payment Method
+        $this->shippingRate
+            ->setCode($orderData['shipping_method'])
+            ->getPrice(1);
+
 
         $shippingAddress = $cart->getShippingAddress();
 
