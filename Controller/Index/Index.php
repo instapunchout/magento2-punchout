@@ -122,6 +122,16 @@ class Index extends \Magento\Framework\App\Action\Action
         $this->productFactory = $productFactory;
     }
 
+    private function getAllowedCountries()
+    {
+        $countries = \Magento\Framework\App\ObjectManager::getInstance()
+            ->get(\Magento\Directory\Model\AllowedCountries::class)->getAllowedCountries();
+        $res = array();
+        foreach ($countries as $k => $v) {
+            $res[] = $v;
+        }
+        return $res;
+    }
 
     private function getCompanies()
     {
@@ -162,6 +172,7 @@ class Index extends \Magento\Framework\App\Action\Action
             "groups" => $collection->toOptionArray(),
             "websites" => $websites,
             "stores" => $stores,
+            "allowed_countries" => $this->getAllowedCountries(),
         ];
     }
 
@@ -195,14 +206,14 @@ class Index extends \Magento\Framework\App\Action\Action
             $customer->setExtensionAttributes($attributes);
             $updated = true;
         }
-	    
-	if (isset($res['properties']) && isset($res['properties']['custom_attributes'])) {
+
+        if (isset($res['properties']) && isset($res['properties']['custom_attributes'])) {
             $customer = $this->customerRepository->get($email);
             foreach ($res['properties']['custom_attributes'] as $key => $value) {
                 $customer->setCustomAttribute($key, $value);
             }
             $updated = true;
-	}
+        }
 
         if (isset($res['company_id'])) {
             if (class_exists(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class)) {
@@ -227,15 +238,15 @@ class Index extends \Magento\Framework\App\Action\Action
         return $customer;
     }
 
-    private function clearCart() {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance(); 
+    private function clearCart()
+    {
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $cart = $objectManager->get(\Magento\Checkout\Model\Cart::class);
         $quoteItems = $cart->getQuote()->getItemsCollection();
-		foreach($quoteItems as $item)
-		{
-			$cart->removeItem($item->getId());
-		}
-        $cart->save(); 
+        foreach ($quoteItems as $item) {
+            $cart->removeItem($item->getId());
+        }
+        $cart->save();
     }
 
     private function getCart()
@@ -334,12 +345,6 @@ class Index extends \Magento\Framework\App\Action\Action
             }
 
             $resultRedirect = $this->resultRedirectFactory->create();
-            // log out customer
-            if ($this->session->isLoggedIn()) {
-                $lastCustomerId = $this->session->getId();
-                $this->session->logout()->setLastCustomerId($lastCustomerId);
-            }
-
 
             // no need for further sanization as we need to capture all the server data as is
             $server = json_decode(json_encode($_SERVER), true);
@@ -361,6 +366,12 @@ class Index extends \Magento\Framework\App\Action\Action
                 echo $xml->asXML();
             } else if ($res['action'] == 'login') {
 
+                // log out customer
+                if ($this->session->isLoggedIn()) {
+                    $lastCustomerId = $this->session->getId();
+                    $this->session->logout()->setLastCustomerId($lastCustomerId);
+                }
+
                 $customer = $this->prepareCustomer($res);
 
                 $this->_eventManager->dispatch('customer_data_object_login', ['customer' => $customer]);
@@ -376,7 +387,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 }
 
                 $this->clearCart();
-                
+
                 // Add punchout session ID to customer session
                 $this->session->setPunchoutId($res['punchout_id']);
 
@@ -402,7 +413,6 @@ class Index extends \Magento\Framework\App\Action\Action
 
     private function createOrder($orderData)
     {
-
         //init the store id and website id @todo pass from array
         $store = $this->storeManager->getStore();
         $websiteId = $this->storeManager->getStore()->getWebsiteId();
@@ -421,7 +431,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 ->setFirstname($orderData['firstname'])
                 ->setLastname($orderData['lastname'])
                 ->setEmail($orderData['email'])
-                ->setPassword($orderData['email']);
+                ->setPassword($orderData['password']);
 
             $customer->save();
         }
@@ -434,6 +444,7 @@ class Index extends \Magento\Framework\App\Action\Action
 
         // if you have already had the buyer id, you can load customer directly
         $customer = $this->customerRepository->getById($customer->getEntityId());
+        $this->session->setCustomerDataAsLoggedIn($customer);
         $cart->setCurrency();
         $cart->assignCustomer($customer); //Assign quote to customer
 
@@ -454,6 +465,13 @@ class Index extends \Magento\Framework\App\Action\Action
         $this->shippingRate
             ->setCode('freeshipping_freeshipping')
             ->getPrice(1);
+
+        if ($orderData['ignore_address_validation']) {
+            $cart->getBillingAddress()->setShouldIgnoreValidation(true);
+            if (!$cart->getIsVirtual()) {
+                $cart->getShippingAddress()->setShouldIgnoreValidation(true);
+            }
+        }
 
         $shippingAddress = $cart->getShippingAddress();
 
@@ -477,7 +495,6 @@ class Index extends \Magento\Framework\App\Action\Action
         // Submit the quote and create the order
         $cart->save();
         $cart = $this->cartRepository->get($cart->getId());
-
         $order_id = $this->cartManagement->placeOrder($cart->getId());
         return ['id' => $order_id];
     }
