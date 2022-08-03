@@ -176,6 +176,63 @@ class Index extends \Magento\Framework\App\Action\Action
         ];
     }
 
+
+    private function updateCustomer($customer,$res) {
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+
+        $updated = false;
+        if(isset($res['store_id'])) {
+            $customer->setStoreId($res['store_id']);
+            $updated = false;
+        }
+        
+        if(isset($res['group_id'])) {
+            $customer->setGroupId($res['group_id']);
+            $updated = true;
+        };
+        if(isset($res['website_id'])) {
+            $customer->setWebsiteId($res['website_id']);
+            $updated = true;
+        };
+
+        if (isset($res['properties']) && isset($res['properties']['extension_attributes'])) {
+            $customer = $this->customerRepository->get($email);
+            $attributes = $customer->getExtensionAttributes();
+            foreach ($res['properties']['extension_attributes'] as $key => $value) {
+                $attributes->setData($key, $value);
+            }
+            $customer->setExtensionAttributes($attributes);
+            $updated = true;
+        }
+	    
+        if (isset($res['properties']) && isset($res['properties']['custom_attributes'])) {
+                $customer = $this->customerRepository->get($email);
+                foreach ($res['properties']['custom_attributes'] as $key => $value) {
+                    $customer->setCustomAttribute($key, $value);
+                }
+                $updated = true;
+        }
+
+        if (isset($res['company_id'])) {
+            if (class_exists(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class)) {
+                $factory = $objectManager->get(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class);
+                $attributes = $customer->getExtensionAttributes();
+                $company_user = $attributes->getAwCaCompanyUser();
+                if (!$company_user) {
+                    $company_user = $factory->create();
+                }
+
+                $company_user->setCompanyId($res['company_id']);
+                $attributes->setAwCaCompanyUser($company_user);
+                $customer->setExtensionAttributes($attributes);
+                $updated = true;
+            }
+        }
+        
+        return $updated;
+    }
+
+
     private function prepareCustomer($res)
     {
         // get magento 2 customer by email
@@ -194,46 +251,8 @@ class Index extends \Magento\Framework\App\Action\Action
         }
 
         $customer = $this->customerRepository->get($email);
-
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-
-        if (isset($res['properties']) && isset($res['properties']['extension_attributes'])) {
-            $customer = $this->customerRepository->get($email);
-            $attributes = $customer->getExtensionAttributes();
-            foreach ($res['properties']['extension_attributes'] as $key => $value) {
-                $attributes->setData($key, $value);
-            }
-            $customer->setExtensionAttributes($attributes);
-            $updated = true;
-        }
-
-        if (isset($res['properties']) && isset($res['properties']['custom_attributes'])) {
-            $customer = $this->customerRepository->get($email);
-            foreach ($res['properties']['custom_attributes'] as $key => $value) {
-                $customer->setCustomAttribute($key, $value);
-            }
-            $updated = true;
-        }
-
-        if (isset($res['company_id'])) {
-            if (class_exists(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class)) {
-                $factory = $objectManager->get(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class);
-                $attributes = $customer->getExtensionAttributes();
-                $company_user = $attributes->getAwCaCompanyUser();
-                if (!$company_user) {
-                    $company_user = $factory->create();
-                }
-
-                $company_user->setCompanyId($res['company_id']);
-                $attributes->setAwCaCompanyUser($company_user);
-                $customer->setExtensionAttributes($attributes);
-                $updated = true;
-            }
-        }
-
-        if ($updated) {
-            $this->customerRepository->save($customer);
-        }
+        $this->updateCustomer($customer,$res);
+        $this->customerRepository->save($customer);
 
         return $customer;
     }
