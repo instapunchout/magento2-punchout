@@ -178,6 +178,7 @@ class Index extends \Magento\Framework\App\Action\Action
 
 
     private function updateCustomer($customer,$res) {
+	$email = $res['email'];
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
 
         $updated = false;
