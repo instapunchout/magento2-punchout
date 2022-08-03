@@ -269,6 +269,26 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->save();
     }
 
+    private function encodeExtensionAttributes($attributes) {
+        $data = [];
+        foreach ($attributes->__toArray() as $key => $value) {
+            try {
+                if(is_array($value)) {
+                    $values = [];
+                    foreach ($value as $key2 => $value2) {
+                        $values[] = is_object($value2)  ? $value2->getData() : $value2;
+                    }
+                    $data[$key] = $values;
+                }else {
+                    $data[$key] = $value->getValue();
+                }
+            } catch (\Throwable $th) {
+                $data[$key] = ["error" => $th->getMessage()];
+            }
+        }
+        return $data;
+    }
+
     private function getCart()
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
@@ -290,14 +310,18 @@ class Index extends \Magento\Framework\App\Action\Action
                 array_push($options, $option->getData());
             }
             $item_data['options'] = $options;
-            $item_data['attributes'] = $item->getExtensionAttributes();
+            $product = $this->productFactory->create()->load($item_data['product_id']);
+
+
+            $item_data['extension_attributes'] = $this->encodeExtensionAttributes($product->getExtensionAttributes());
+            $data = [];
+            foreach ($product->getCustomAttributes() as $key => $value) {
+                $data[$value->getAttributeCode()] = $value->getValue();
+            }
+            $item_data['custom_attributes'] = $data;
+            
             $items[] = $item_data;
-            /*                        echo 'ID: '.$item->getProductId().'<br />';
-            echo 'Name: '.$item->getName().'<br />';
-            echo 'Sku: '.$item->getSku().'<br />';
-            echo 'Quantity: '.$item->getQty().'<br />';
-            echo 'Price: '.$item->getPrice().'<br />';
-            echo "<br />";    */
+
         }
         $currency = $this->storeManager->getStore()->getCurrentCurrency()->getCode();
         return [
