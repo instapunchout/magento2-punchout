@@ -279,24 +279,35 @@ class Index extends \Magento\Framework\App\Action\Action
                         $values[] = is_object($value2)  ? $value2->getData() : $value2;
                     }
                     $data[$key] = $values;
-                }else {
+                }else if(is_object($value)) {
                     $data[$key] = $value->getValue();
+                }else {
+                    $data[$key] = $value;
                 }
             } catch (\Throwable $th) {
                 $data[$key] = ["error" => $th->getMessage()];
             }
         }
-        return $data;
+        return (object)$data;
+    }
+
+    private function encodeProduct($product) {
+        $item_data = $product->getData();
+
+        $item_data['extension_attributes'] = $this->encodeExtensionAttributes($product->getExtensionAttributes());
+        $data = [];
+        foreach ($product->getCustomAttributes() as $key => $value) {
+            $data[$value->getAttributeCode()] = $value->getValue();
+        }
+        $item_data['custom_attributes'] = (object)$data;
+        return (object)$item_data;
     }
 
     private function getCart()
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $cart = $objectManager->get(\Magento\Checkout\Model\Cart::class);
-
-        // get quote items collection
-        $itemsCollection = $cart->getQuote()->getItemsCollection();
-
+        
         // get array of all items what can be display directly
         $itemsVisible = $cart->getQuote()->getAllVisibleItems();
 
@@ -311,14 +322,14 @@ class Index extends \Magento\Framework\App\Action\Action
             }
             $item_data['options'] = $options;
             $product = $this->productFactory->create()->load($item_data['product_id']);
+            $item_data['product'] = $this->encodeProduct($product);
 
-
-            $item_data['extension_attributes'] = $this->encodeExtensionAttributes($product->getExtensionAttributes());
+            $item_data['extension_attributes'] = $this->encodeExtensionAttributes($item->getExtensionAttributes());
             $data = [];
-            foreach ($product->getCustomAttributes() as $key => $value) {
+            foreach ($item->getCustomAttributes() as $key => $value) {
                 $data[$value->getAttributeCode()] = $value->getValue();
             }
-            $item_data['custom_attributes'] = $data;
+            $item_data['custom_attributes'] = (object)$data;
             
             $items[] = $item_data;
 
