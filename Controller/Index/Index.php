@@ -150,7 +150,7 @@ class Index extends \Magento\Framework\App\Action\Action
         $companies = [];
         foreach ($repo->getList($searchCriteria)->getItems() as $value) {
             $company_name = $value->getCompanyName();
-            $companies[] = ['id' => $value->getId(), 'name' => isset($company_name) ? $company_name : $value->getName()];
+            $companies[] = ['value' => $value->getId(), 'label' => isset($company_name) ? $company_name : $value->getName()];
         }
         return $companies;
     }
