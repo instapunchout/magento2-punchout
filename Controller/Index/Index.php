@@ -542,12 +542,19 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->getShippingAddress()->addShippingRate($this->shippingRate);
 
         $cart->setPaymentMethod($orderData['payment_method']); //'checkmo'); //payment method
+	if(isset($orderData['po'])) {
+	  $cart->setPoNumber($orderData['po']);
+	}
 
         //@todo insert a variable to affect the invetory
         $cart->setInventoryProcessed(false);
 
         // Set sales order payment
-        $cart->getPayment()->importData(['method' => $orderData['payment_method']]);
+	$paymentData = ['method' => $orderData['payment_method']];
+	if(isset($orderData['po'])) {
+	  $paymentData['po_number'] = $orderData['po'];
+	}
+        $cart->getPayment()->importData($paymentData);
 
         // Collect total and save
         $cart->collectTotals();
