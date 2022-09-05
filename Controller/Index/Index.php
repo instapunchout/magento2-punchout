@@ -254,6 +254,13 @@ class Index extends \Magento\Framework\App\Action\Action
         $customer = $this->customerRepository->get($email);
         $this->updateCustomer($customer,$res);
         $this->customerRepository->save($customer);
+	    
+        
+        $websiteId =$this->storeManager->getStore()->getWebsiteId();
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+
+        $CustomerModel = $objectManager->create('Magento\Customer\Model\Customer');
+        $customer = $CustomerModel->setWebsiteId( $websiteId)->loadByEmail($res['email']); 
 
         return $customer;
     }
