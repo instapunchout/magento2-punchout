@@ -439,7 +439,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 $this->_eventManager->dispatch('customer_data_object_login', ['customer' => $customer]);
 
                 // login magento 2 customer
-                $this->session->setCustomerDataAsLoggedIn($customer);
+                $this->session->setCustomerAsLoggedIn($customer);
                 $this->session->regenerateId();
 
                 if ($this->cookieManager->getCookie('mage-cache-sessid')) {
