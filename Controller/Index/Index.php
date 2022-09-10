@@ -512,6 +512,9 @@ class Index extends \Magento\Framework\App\Action\Action
 
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $objectFactory = $objectManager->get('\Magento\Framework\DataObject\Factory');
+	    
+        $productRepository = $objectManager->get('\Magento\Catalog\Model\ProductRepository');
+
         //add items in quote
         foreach ($orderData['items'] as $item) {
 	    $product;
