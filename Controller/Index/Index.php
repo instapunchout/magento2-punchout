@@ -514,7 +514,17 @@ class Index extends \Magento\Framework\App\Action\Action
         $objectFactory = $objectManager->get('\Magento\Framework\DataObject\Factory');
         //add items in quote
         foreach ($orderData['items'] as $item) {
-            $product = $this->productFactory->create()->load($item['product']);
+	    $product;
+            if(isset($item['product'])) {
+                $product = $this->productFactory->create()->load($item['product']);
+            } else if (isset($item['sku'])) {
+                $product = $productRepository->get($item['sku']);
+                if(!isset($product)) {
+                    return ['error'=> 'Coudnt find product with sku '.$item['sku']];
+                }
+            } else {
+                return ['error'=> 'Required field product or sku'];
+            }
             $options = $objectFactory->create($item);
             $cart->addProduct(
                 $product,
