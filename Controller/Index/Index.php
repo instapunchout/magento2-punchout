@@ -255,13 +255,6 @@ class Index extends \Magento\Framework\App\Action\Action
         $this->updateCustomer($customer,$res);
         $this->customerRepository->save($customer);
 	    
-        
-        $websiteId =$this->storeManager->getStore()->getWebsiteId();
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-
-        $CustomerModel = $objectManager->create('Magento\Customer\Model\Customer');
-        $customer = $CustomerModel->setWebsiteId( $websiteId)->loadByEmail($res['email']); 
-
         return $customer;
     }
 
@@ -434,9 +427,15 @@ class Index extends \Magento\Framework\App\Action\Action
                     $this->session->logout()->setLastCustomerId($lastCustomerId);
                 }
 
-                $customer = $this->prepareCustomer($res);
-
-                $this->_eventManager->dispatch('customer_data_object_login', ['customer' => $customer]);
+		// use customer data object to trigger login event
+                $customer_data = $this->prepareCustomer($res);
+                $this->_eventManager->dispatch('customer_data_object_login', ['customer' => $customer_data]);
+		
+		// use customer object to login
+		$websiteId =$this->storeManager->getStore()->getWebsiteId();
+		$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+		$CustomerModel = $objectManager->create('Magento\Customer\Model\Customer');
+		$customer = $CustomerModel->setWebsiteId( $websiteId)->loadByEmail($res['email']); 
 
                 // login magento 2 customer
                 $this->session->setCustomerAsLoggedIn($customer);
