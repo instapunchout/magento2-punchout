@@ -508,6 +508,7 @@ class Index extends \Magento\Framework\App\Action\Action
         $this->session->setCustomerDataAsLoggedIn($customer);
         $cart->setCurrency();
         $cart->assignCustomer($customer); //Assign quote to customer
+        $cart->setCustomerIsGuest(false);
 
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $objectFactory = $objectManager->get('\Magento\Framework\DataObject\Factory');
