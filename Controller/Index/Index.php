@@ -305,9 +305,12 @@ class Index extends \Magento\Framework\App\Action\Action
         foreach ($product->getOptions() as $option) {
             $option_data = $option->getData();
             $values = [];
-            foreach($option->getValues() as $value) {
-                array_push($values, $value->getData());
-            }
+	    $optionValues = $option->getValues();
+	    if($optionValues) {
+                foreach($option->getValues() as $value) {
+                     array_push($values, $value->getData());
+                }
+	    }
             $option_data["values"] = $values;
             array_push($options, $option_data);
         }
