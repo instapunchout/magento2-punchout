@@ -4,12 +4,14 @@
         <policy id="frame-ancestors">
             <values>
                 <value id="ariba" type="host">*.ariba.com</value>
+                <value id="coupahost" type="host">*.coupahost.com</value>
                 <value id="instapunchout" type="host">app.instapunchout.com</value>
             </values>
         </policy>
         <policy id="form-action">
             <values>
                 <value id="ariba" type="host">*.ariba.com</value>
+                <value id="coupahost" type="host">*.coupahost.com</value>
                 <value id="instapunchout" type="host">app.instapunchout.com</value>
             </values>
         </policy>
