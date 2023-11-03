@@ -475,7 +475,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 $resultRedirect->setUrl('/');
                 return $resultRedirect;
             } else {
-                echo "v0.0.28 unknwon action " . esc_html($res['action']);
+                echo "v0.0.28 unknwon action " . $res['action'];
                 echo json_encode($data);
                 echo json_encode($res);
             }
