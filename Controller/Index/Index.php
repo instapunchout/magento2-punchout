@@ -6,7 +6,7 @@ class Index extends \Magento\Framework\App\Action\Action
 {
     /**
      * Customer session
-     * @var Magento\Customer\Model\Session
+     * @var \Magento\Customer\Model\Session
      */
     protected $session;
 
@@ -15,16 +15,6 @@ class Index extends \Magento\Framework\App\Action\Action
      * @var \Magento\Framework\UrlInterface
      */
     protected $url;
-
-    /**
-     * @var \InstaPunchout\Punchout\Model\Configuration
-     */
-    protected $configuration;
-
-    /**
-     * @var \InstaPunchout\Punchout\Model\Punchout
-     */
-    protected $punchout;
 
     /**
      * @var \Magento\Store\Model\StoreManagerInterface
@@ -42,7 +32,7 @@ class Index extends \Magento\Framework\App\Action\Action
     protected $cookieMetadataFactory;
 
     /**
-     * @var CustomerFactory
+     * @var \Magento\Customer\Model\CustomerFactory
      */
     protected $customerFactory;
 
@@ -75,6 +65,8 @@ class Index extends \Magento\Framework\App\Action\Action
      * @var \Magento\Catalog\Model\ProductFactory
      */
     private $productFactory;
+
+    private $debug = true;
 
     /**
      * Login constructor.
@@ -177,24 +169,27 @@ class Index extends \Magento\Framework\App\Action\Action
     }
 
 
-    private function updateCustomer($customer,$res) {
-	$email = $res['email'];
+    private function updateCustomer($customer, $res)
+    {
+        $email = $res['email'];
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
 
         $updated = false;
-        if(isset($res['store_id'])) {
+        if (isset($res['store_id'])) {
             $customer->setStoreId($res['store_id']);
             $updated = false;
         }
-        
-        if(isset($res['group_id'])) {
+
+        if (isset($res['group_id'])) {
             $customer->setGroupId($res['group_id']);
             $updated = true;
-        };
-        if(isset($res['website_id'])) {
+        }
+
+        if (isset($res['website_id'])) {
             $customer->setWebsiteId($res['website_id']);
             $updated = true;
-        };
+        }
+
 
         if (isset($res['properties']) && isset($res['properties']['extension_attributes'])) {
             $customer = $this->customerRepository->get($email);
@@ -205,13 +200,13 @@ class Index extends \Magento\Framework\App\Action\Action
             $customer->setExtensionAttributes($attributes);
             $updated = true;
         }
-	    
+
         if (isset($res['properties']) && isset($res['properties']['custom_attributes'])) {
-                $customer = $this->customerRepository->get($email);
-                foreach ($res['properties']['custom_attributes'] as $key => $value) {
-                    $customer->setCustomAttribute($key, $value);
-                }
-                $updated = true;
+            $customer = $this->customerRepository->get($email);
+            foreach ($res['properties']['custom_attributes'] as $key => $value) {
+                $customer->setCustomAttribute($key, $value);
+            }
+            $updated = true;
         }
 
         if (isset($res['company_id'])) {
@@ -229,7 +224,7 @@ class Index extends \Magento\Framework\App\Action\Action
                 $updated = true;
             }
         }
-        
+
         return $updated;
     }
 
@@ -238,7 +233,6 @@ class Index extends \Magento\Framework\App\Action\Action
     {
         // get magento 2 customer by email
         $email = $res['email'];
-        $updated = false;
         try {
             $customer = $this->customerRepository->get($email);
         } catch (\Exception $e) {
@@ -252,9 +246,9 @@ class Index extends \Magento\Framework\App\Action\Action
         }
 
         $customer = $this->customerRepository->get($email);
-        $this->updateCustomer($customer,$res);
+        $this->updateCustomer($customer, $res);
         $this->customerRepository->save($customer);
-	    
+
         return $customer;
     }
 
@@ -269,29 +263,31 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->save();
     }
 
-    private function encodeExtensionAttributes($attributes) {
+    private function encodeExtensionAttributes($attributes)
+    {
         $data = [];
         foreach ($attributes->__toArray() as $key => $value) {
             try {
-                if(is_array($value)) {
+                if (is_array($value)) {
                     $values = [];
                     foreach ($value as $key2 => $value2) {
-                        $values[] = is_object($value2)  ? $value2->getData() : $value2;
+                        $values[] = is_object($value2) ? $value2->getData() : $value2;
                     }
                     $data[$key] = $values;
-                }else if(is_object($value)) {
+                } else if (is_object($value)) {
                     $data[$key] = $value->getValue();
-                }else {
+                } else {
                     $data[$key] = $value;
                 }
             } catch (\Throwable $th) {
                 $data[$key] = ["error" => $th->getMessage()];
             }
         }
-        return (object)$data;
+        return (object) $data;
     }
 
-    private function encodeProduct($product) {
+    private function encodeProduct($product)
+    {
         $item_data = $product->getData();
 
         $item_data['extension_attributes'] = $this->encodeExtensionAttributes($product->getExtensionAttributes());
@@ -299,15 +295,15 @@ class Index extends \Magento\Framework\App\Action\Action
         foreach ($product->getCustomAttributes() as $key => $value) {
             $data[$value->getAttributeCode()] = $value->getValue();
         }
-        $item_data['custom_attributes'] = (object)$data;
-        return (object)$item_data;
+        $item_data['custom_attributes'] = (object) $data;
+        return (object) $item_data;
     }
 
     private function getCart()
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $cart = $objectManager->get(\Magento\Checkout\Model\Cart::class);
-        
+
         // get array of all items what can be display directly
         $itemsVisible = $cart->getQuote()->getAllVisibleItems();
 
@@ -329,8 +325,8 @@ class Index extends \Magento\Framework\App\Action\Action
             foreach ($item->getCustomAttributes() as $key => $value) {
                 $data[$value->getAttributeCode()] = $value->getValue();
             }
-            $item_data['custom_attributes'] = (object)$data;
-            
+            $item_data['custom_attributes'] = (object) $data;
+
             $items[] = $item_data;
 
         }
@@ -339,6 +335,13 @@ class Index extends \Magento\Framework\App\Action\Action
             'items' => $items,
             'currency' => $currency,
         ];
+    }
+
+    private function isApiAuthorized()
+    {
+        $token = $this->getRequest()->getParam('token');
+        $res = $this->post('https://punchout.cloud/authorize', ["authorization" => $token]);
+        return $res["authorized"] == true;
     }
 
     /**
@@ -350,7 +353,11 @@ class Index extends \Magento\Framework\App\Action\Action
             $response = NULL;
             $path = $this->getRequest()->getParam('path');
             if ($path == 'options.json') {
-                $response = $this->getOptions();
+                if ($this->isApiAuthorized()) {
+                    $response = $this->getOptions();
+                } else {
+                    $response = ["error" => "You're not authorized"];
+                }
             } else if ($path == 'script') {
                 $punchout_id = $this->session->getPunchoutId();
                 if (empty($punchout_id)) {
@@ -379,9 +386,7 @@ class Index extends \Magento\Framework\App\Action\Action
                     $response = ['message' => "You're not in a punchout session"];
                 }
             } else if ($path == 'order.json') {
-                $token = $this->getRequest()->getParam('token');
-                $res = $this->post('https://punchout.cloud/authorize', ["authorization" => $token]);
-                if ($res["authorized"] == true) {
+                if ($this->isApiAuthorized()) {
                     $body = $this->getRequest()->getContent();
                     $response = $this->createOrder(json_decode($body, true));
                 } else {
@@ -415,9 +420,18 @@ class Index extends \Magento\Framework\App\Action\Action
 
             $res = $this->post('https://punchout.cloud/proxy', $data);
 
+            if (!is_array($res) || !isset($res['action'])) {
+                if ($this->debug) {
+                    echo json_encode(['error' => 'Please use a valid punchout URL', 'debug' => $res]);
+                } else {
+                    echo json_encode(['error' => 'Please use a valid punchout URL']);
+                }
+                exit;
+            }
+
             if ($res['action'] == 'print') {
                 header('content-type: application/xml');
-                $xml = new SimpleXMLElement($res['body']);
+                $xml = new \SimpleXMLElement($res['body']);
                 echo $xml->asXML();
             } else if ($res['action'] == 'login') {
 
@@ -427,15 +441,15 @@ class Index extends \Magento\Framework\App\Action\Action
                     $this->session->logout()->setLastCustomerId($lastCustomerId);
                 }
 
-		// use customer data object to trigger login event
+                // use customer data object to trigger login event
                 $customer_data = $this->prepareCustomer($res);
                 $this->_eventManager->dispatch('customer_data_object_login', ['customer' => $customer_data]);
-		
-		// use customer object to login
-		$websiteId =$this->storeManager->getStore()->getWebsiteId();
-		$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-		$CustomerModel = $objectManager->create('Magento\Customer\Model\Customer');
-		$customer = $CustomerModel->setWebsiteId( $websiteId)->loadByEmail($res['email']); 
+
+                // use customer object to login
+                $websiteId = $this->storeManager->getStore()->getWebsiteId();
+                $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+                $CustomerModel = $objectManager->create('Magento\Customer\Model\Customer');
+                $customer = $CustomerModel->setWebsiteId($websiteId)->loadByEmail($res['email']);
 
                 // login magento 2 customer
                 $this->session->setCustomerAsLoggedIn($customer);
@@ -453,23 +467,28 @@ class Index extends \Magento\Framework\App\Action\Action
                 $this->session->setPunchoutId($res['punchout_id']);
 
                 // Fake request method to trigger version update for private content
-                $this->_request->setMethod(\Zend\Http\Request::METHOD_POST);
+                /** @var \Zend\Http\Request $request */
+                $request = $this->_request;
+                $request->setMethod(\Zend\Http\Request::METHOD_POST);
 
                 // redirect to punchout
                 $resultRedirect->setUrl('/');
                 return $resultRedirect;
             } else {
-                echo "v0.0.28 unknwon action " . esc_html($res['action']);
-                echo json_encode($data);
-                echo json_encode($res);
+                if ($this->debug) {
+                    echo json_encode(['error' => 'Unknown action ' . $res['action'], 'debug' => $res]);
+                } else {
+                    echo json_encode(['error' => 'Unknown action ' . $res['action']]);
+                }
             }
-            exit;
         } catch (\Throwable $e) {
-            die(json_encode(["error" => $e->getMessage()]));
+            if ($this->debug) {
+                echo json_encode(["error" => $e->getMessage()]);
+            } else {
+                echo json_encode(['error' => 'Internal Server Error']);
+            }
         }
-        $defaultUrl = $this->url->getUrl('/', ['_secure' => true]);
-        $resultRedirect->setUrl($this->_redirect->error($defaultUrl));
-        return $resultRedirect;
+        exit;
     }
 
     private function createOrder($orderData)
@@ -512,21 +531,21 @@ class Index extends \Magento\Framework\App\Action\Action
 
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $objectFactory = $objectManager->get('\Magento\Framework\DataObject\Factory');
-	    
+
         $productRepository = $objectManager->get('\Magento\Catalog\Model\ProductRepository');
 
         //add items in quote
         foreach ($orderData['items'] as $item) {
-	    $product;
-            if(isset($item['product'])) {
+            $product = NULL;
+            if (isset($item['product'])) {
                 $product = $this->productFactory->create()->load($item['product']);
             } else if (isset($item['sku'])) {
                 $product = $productRepository->get($item['sku']);
-                if(!isset($product)) {
-                    return ['error'=> 'Coudnt find product with sku '.$item['sku']];
+                if (!isset($product)) {
+                    return ['error' => 'Coudnt find product with sku ' . $item['sku']];
                 }
             } else {
-                return ['error'=> 'Required field product or sku'];
+                return ['error' => 'Required field product or sku'];
             }
             $options = $objectFactory->create($item);
             $cart->addProduct(
@@ -562,18 +581,18 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->getShippingAddress()->addShippingRate($this->shippingRate);
 
         $cart->setPaymentMethod($orderData['payment_method']); //'checkmo'); //payment method
-	if(isset($orderData['po'])) {
-	  $cart->setPoNumber($orderData['po']);
-	}
+        if (isset($orderData['po'])) {
+            $cart->setPoNumber($orderData['po']);
+        }
 
         //@todo insert a variable to affect the invetory
         $cart->setInventoryProcessed(false);
 
         // Set sales order payment
-	$paymentData = ['method' => $orderData['payment_method']];
-	if(isset($orderData['po'])) {
-	  $paymentData['po_number'] = $orderData['po'];
-	}
+        $paymentData = ['method' => $orderData['payment_method']];
+        if (isset($orderData['po'])) {
+            $paymentData['po_number'] = $orderData['po'];
+        }
         $cart->getPayment()->importData($paymentData);
 
         // Collect total and save
