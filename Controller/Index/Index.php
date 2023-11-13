@@ -296,6 +296,22 @@ class Index extends \Magento\Framework\App\Action\Action
             $data[$value->getAttributeCode()] = $value->getValue();
         }
         $item_data['custom_attributes'] = (object) $data;
+
+        $options = [];
+        foreach ($product->getOptions() as $option) {
+            $option_data = $option->getData();
+            $values = [];
+            $optionValues = $option->getValues();
+            if ($optionValues) {
+                foreach ($option->getValues() as $value) {
+                    array_push($values, $value->getData());
+                }
+            }
+            $option_data["values"] = $values;
+            array_push($options, $option_data);
+        }
+        $item_data['options'] = $options;
+
         return (object) $item_data;
     }
 
