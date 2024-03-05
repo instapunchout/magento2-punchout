@@ -483,9 +483,8 @@ class Index extends \Magento\Framework\App\Action\Action
                 $this->session->setPunchoutId($res['punchout_id']);
 
                 // Fake request method to trigger version update for private content
-                /** @var \Zend\Http\Request $request */
                 $request = $this->_request;
-                $request->setMethod(\Zend\Http\Request::METHOD_POST);
+                $request->setMethod('POST');
 
                 // redirect to punchout
                 $resultRedirect->setUrl('/');
