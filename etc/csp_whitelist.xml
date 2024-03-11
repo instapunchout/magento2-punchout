@@ -5,6 +5,7 @@
             <values>
                 <value id="ariba" type="host">*.ariba.com</value>
                 <value id="coupahost" type="host">*.coupahost.com</value>
+                <value id="t1cloud" type="host">*.t1cloud.com</value>
                 <value id="instapunchout" type="host">app.instapunchout.com</value>
             </values>
         </policy>
@@ -12,6 +13,7 @@
             <values>
                 <value id="ariba" type="host">*.ariba.com</value>
                 <value id="coupahost" type="host">*.coupahost.com</value>
+                <value id="t1cloud" type="host">*.t1cloud.com</value>
                 <value id="instapunchout" type="host">app.instapunchout.com</value>
             </values>
         </policy>
