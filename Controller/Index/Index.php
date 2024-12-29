@@ -428,7 +428,6 @@ class Index extends \Magento\Framework\App\Action\Action
             $query = json_decode(json_encode($_GET), true);
 
             $data = array(
-                'headers' => getallheaders(),
                 'server' => $server,
                 'body' => file_get_contents('php://input'),
                 'query' => $query,
