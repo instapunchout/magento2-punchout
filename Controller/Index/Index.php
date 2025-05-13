@@ -13,6 +13,7 @@ use Magento\Framework\Controller\Result\RawFactory;
 use Magento\Customer\Model\ResourceModel\Group\Collection;
 use Magento\Framework\Phrase;
 use Magento\Framework\Webapi\Exception;
+use Magento\Framework\Api\SearchCriteriaBuilder;
 
 class Index extends Action
 {
@@ -133,6 +134,11 @@ class Index extends Action
     protected $allowedCountries;
 
     /**
+     * @var \Magento\Framework\Api\SearchCriteriaBuilder
+     */
+    protected SearchCriteriaBuilder $searchCriteriaBuilder;
+
+    /**
      * Login constructor.
      *
      * @param \Magento\Framework\App\Action\Context $context
@@ -158,6 +164,7 @@ class Index extends Action
      * @param \Magento\Framework\DataObject\Factory $objectFactory
      * @param \Magento\Customer\Model\Customer $customerModel
      * @param \Magento\Framework\Controller\Result\RawFactory $resultRawFactory
+     * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      */
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
@@ -183,6 +190,7 @@ class Index extends Action
         Factory $objectFactory,
         Customer $customerModel,
         RawFactory $resultRawFactory,
+        SearchCriteriaBuilder $searchCriteriaBuilder
     ) {
         $this->session = $session;
         $this->url = $urlFactory->create();
@@ -206,6 +214,7 @@ class Index extends Action
         $this->objectFactory = $objectFactory;
         $this->customerModel = $customerModel;
         $this->resultRawFactory = $resultRawFactory;
+        $this->searchCriteriaBuilder = $searchCriteriaBuilder;
         parent::__construct($context);
     }
 
@@ -225,8 +234,8 @@ class Index extends Action
         } else {
             return [];
         }
-        $builder = $objectManager->get(\Magento\Framework\Api\SearchCriteriaBuilder::class);
-        $searchCriteria = $builder->create();
+
+        $searchCriteria = $this->searchCriteriaBuilder->create();
 
         $companies = [];
         foreach ($repo->getList($searchCriteria)->getItems() as $value) {
@@ -270,7 +279,6 @@ class Index extends Action
     private function updateCustomer($customer, $res)
     {
         $email = $res['email'];
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
 
         $updated = false;
         if (isset($res['store_id'])) {
@@ -308,6 +316,7 @@ class Index extends Action
 
         if (isset($res['company_id'])) {
             if (class_exists(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class)) {
+                $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
                 $factory = $objectManager->get(\Aheadworks\Ca\Api\Data\CompanyUserInterfaceFactory::class);
                 $attributes = $customer->getExtensionAttributes();
                 $company_user = $attributes->getAwCaCompanyUser();
@@ -573,12 +582,6 @@ class Index extends Action
             }
 
             switch ($res['action']) {
-                case 'print':
-                    $xml = new \SimpleXMLElement($res['body']);
-                    $result = $this->resultRawFactory->create();
-                    $result->setHeader('Content-Type', 'application/xml', true);
-                    $result->setContents($xml->asXML());
-                    return $result;
                 case 'login':
                     if ($this->session->isLoggedIn()) {
                         $lastCustomerId = $this->session->getId();
