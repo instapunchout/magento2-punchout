@@ -1,8 +1,20 @@
 <?php
-
 namespace InstaPunchout\Punchout\Controller\Index;
 
-class Index extends \Magento\Framework\App\Action\Action
+use Magento\Framework\App\RequestInterface;
+use Magento\Framework\HTTP\ClientInterface;
+use Magento\Framework\Controller\Result\JsonFactory;
+use Magento\Framework\App\Action\Action;
+use Magento\Checkout\Model\Cart;
+use Magento\Catalog\Model\ProductRepository;
+use Magento\Framework\DataObject\Factory;
+use Magento\Customer\Model\Customer;
+use Magento\Framework\Controller\Result\RawFactory;
+use Magento\Customer\Model\ResourceModel\Group\Collection;
+use Magento\Framework\Phrase;
+use Magento\Framework\Webapi\Exception;
+
+class Index extends Action
 {
     /**
      * Customer session
@@ -66,23 +78,86 @@ class Index extends \Magento\Framework\App\Action\Action
      */
     private $productFactory;
 
-    private $debug = true;
+    /**
+     * @var \Magento\Customer\Model\ResourceModel\Group\Collection
+     */
+    private $collection;
+
+    /**
+     * @var \Magento\Framework\HTTP\ClientInterface
+     */
+    protected ClientInterface $client;
+
+    /**
+     * @var \Magento\Framework\App\RequestInterface
+     */
+    protected RequestInterface $request;
+
+    /**
+     * @var \Magento\Framework\Event\ManagerInterface
+     */
+
+    /**
+     * @var \Magento\Framework\Controller\Result\JsonFactory
+     */
+    protected JsonFactory $resultJsonFactory;
+
+    /**
+     * @var \Magento\Framework\App\Action\Context
+     */
+    protected Cart $cart;
+
+    /**
+     * @var \Magento\Catalog\Model\ProductRepository
+     */
+    protected ProductRepository $productRepository;
+
+    /**
+     * @var \Magento\Framework\DataObject\Factory
+     */
+    protected Factory $objectFactory;
+
+    /**
+     * @var \Magento\Customer\Model\Customer
+     */
+    protected Customer $customerModel;
+
+    /**
+     * @var \Magento\Framework\Controller\Result\RawFactory
+     */
+    protected RawFactory $resultRawFactory;
+
+    /**
+     * @var \Magento\Directory\Model\AllowedCountries
+     */
+    protected $allowedCountries;
 
     /**
      * Login constructor.
      *
      * @param \Magento\Framework\App\Action\Context $context
-     * @param \Magento\Customer\Model\Session $session
+     * @param \Magento\Customer\Model\Session  $session
      * @param \Magento\Framework\UrlFactory $urlFactory
      * @param \Magento\Customer\Model\ResourceModel\CustomerRepository $customerRepository
      * @param \Magento\Customer\Model\CustomerFactory $customerFactory
      * @param \Magento\Framework\Stdlib\CookieManagerInterface $cookieManager
      * @param \Magento\Framework\Stdlib\Cookie\CookieMetadataFactory $cookieMetadataFactory
+     * @param \Magento\Store\Model\StoreManagerInterface $storeManager
      * @param \Magento\Quote\Api\CartManagementInterface $cartManagement
      * @param \Magento\Quote\Api\CartRepositoryInterface $cartRepository
      * @param \Magento\Sales\Model\Service\OrderService $orderService
      * @param \Magento\Quote\Model\Quote\Address\Rate $shippingRate
      * @param \Magento\Catalog\Model\ProductFactory $productFactory
+     * @param \Magento\Customer\Model\ResourceModel\Group\Collection $collection
+     * @param \Magento\Directory\Model\AllowedCountries $allowedCountries
+     * @param \Magento\Checkout\Model\Cart $cart
+     * @param \Magento\Framework\HTTP\ClientInterface $client
+     * @param \Magento\Framework\App\RequestInterface $request
+     * @param \Magento\Framework\Controller\Result\JsonFactory $resultJsonFactory
+     * @param \Magento\Catalog\Model\ProductRepository $productRepository
+     * @param \Magento\Framework\DataObject\Factory $objectFactory
+     * @param \Magento\Customer\Model\Customer $customerModel
+     * @param \Magento\Framework\Controller\Result\RawFactory $resultRawFactory
      */
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
@@ -97,9 +172,18 @@ class Index extends \Magento\Framework\App\Action\Action
         \Magento\Quote\Api\CartRepositoryInterface $cartRepository,
         \Magento\Sales\Model\Service\OrderService $orderService,
         \Magento\Quote\Model\Quote\Address\Rate $shippingRate,
-        \Magento\Catalog\Model\ProductFactory $productFactory
+        \Magento\Catalog\Model\ProductFactory $productFactory,
+        Collection $collection,
+        \Magento\Directory\Model\AllowedCountries $allowedCountries,
+        Cart $cart,
+        ClientInterface $client,
+        RequestInterface $request,
+        JsonFactory $resultJsonFactory,
+        ProductRepository $productRepository,
+        Factory $objectFactory,
+        Customer $customerModel,
+        RawFactory $resultRawFactory,
     ) {
-        parent::__construct($context);
         $this->session = $session;
         $this->url = $urlFactory->create();
         $this->customerRepository = $customerRepository;
@@ -112,26 +196,31 @@ class Index extends \Magento\Framework\App\Action\Action
         $this->orderService = $orderService;
         $this->shippingRate = $shippingRate;
         $this->productFactory = $productFactory;
+        $this->collection = $collection;
+        $this->allowedCountries = $allowedCountries;
+        $this->cart = $cart;
+        $this->client = $client;
+        $this->resultJsonFactory = $resultJsonFactory;
+        $this->request = $request;
+        $this->productRepository = $productRepository;
+        $this->objectFactory = $objectFactory;
+        $this->customerModel = $customerModel;
+        $this->resultRawFactory = $resultRawFactory;
+        parent::__construct($context);
     }
 
-    private function getAllowedCountries()
-    {
-        $countries = \Magento\Framework\App\ObjectManager::getInstance()
-            ->get(\Magento\Directory\Model\AllowedCountries::class)->getAllowedCountries();
-        $res = array();
-        foreach ($countries as $k => $v) {
-            $res[] = $v;
-        }
-        return $res;
-    }
-
+    /**
+     * Retrieves a list of companies from the appropriate repository.
+     *
+     * @return array An array of companies with their IDs and labels.
+     */
     private function getCompanies()
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $repo = NULL;
+        $repo = null;
         if (class_exists(\Aheadworks\Ca\Model\CompanyRepository::class)) {
             $repo = $objectManager->get('\Aheadworks\Ca\Model\CompanyRepository');
-        } else if (class_exists(\Magento\Company\Model\CompanyRepository::class)) {
+        } elseif (class_exists(\Magento\Company\Model\CompanyRepository::class)) {
             $repo = $objectManager->get('\Magento\Company\Model\CompanyRepository');
         } else {
             return [];
@@ -141,16 +230,19 @@ class Index extends \Magento\Framework\App\Action\Action
 
         $companies = [];
         foreach ($repo->getList($searchCriteria)->getItems() as $value) {
-            $company_name = $value->getCompanyName();
-            $companies[] = ['value' => $value->getId(), 'label' => isset($company_name) ? $company_name : $value->getName()];
+            $companyName = $value->getCompanyName();
+            $companies[] = ['value' => $value->getId(), 'label' => $companyName ?? $value->getName()];
         }
         return $companies;
     }
 
+    /**
+     * Retrieves various options including companies, customer groups, websites, stores, and allowed countries.
+     *
+     * @return array An array containing options data.
+     */
     private function getOptions()
     {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $collection = $objectManager->get('\Magento\Customer\Model\ResourceModel\Group\Collection');
         $websites = [];
         foreach ($this->storeManager->getWebsites() as $website) {
             $websites[] = ['value' => $website->getId(), 'label' => $website->getName()];
@@ -161,14 +253,20 @@ class Index extends \Magento\Framework\App\Action\Action
         }
         return [
             "companies" => $this->getCompanies(),
-            "groups" => $collection->toOptionArray(),
+            "groups" => $this->collection->toOptionArray(),
             "websites" => $websites,
             "stores" => $stores,
-            "allowed_countries" => $this->getAllowedCountries(),
+            "allowed_countries" => $this->allowedCountries->getAllowedCountries(),
         ];
     }
 
-
+    /**
+     * Updates the customer object with the provided data.
+     *
+     * @param \Magento\Customer\Api\Data\CustomerInterface $customer The customer object to update.
+     * @param array $res The data to update the customer with.
+     * @return bool True if the customer was updated, false otherwise.
+     */
     private function updateCustomer($customer, $res)
     {
         $email = $res['email'];
@@ -189,7 +287,6 @@ class Index extends \Magento\Framework\App\Action\Action
             $customer->setWebsiteId($res['website_id']);
             $updated = true;
         }
-
 
         if (isset($res['properties']) && isset($res['properties']['extension_attributes'])) {
             $customer = $this->customerRepository->get($email);
@@ -228,41 +325,53 @@ class Index extends \Magento\Framework\App\Action\Action
         return $updated;
     }
 
-
-    private function prepareCustomer($res)
+    /**
+     * Prepares a customer object by retrieving or creating a customer based on the provided data.
+     *
+     * @param array $data Customer data including email, firstname, lastname, and other attributes.
+     * @return \Magento\Customer\Api\Data\CustomerInterface The prepared customer object.
+     */
+    private function prepareCustomer($data)
     {
         // get magento 2 customer by email
-        $email = $res['email'];
+        $email = $data['email'];
         try {
             $customer = $this->customerRepository->get($email);
         } catch (\Exception $e) {
             $customer = $this->customerFactory->create();
             $customer->setEmail($email);
-            $customer->setFirstname($res['firstname']);
-            $customer->setLastname($res['lastname']);
-            $customer->setPassword($res['password']);
+            $customer->setFirstname($data['firstname']);
+            $customer->setLastname($data['lastname']);
+            $customer->setPassword($data['password']);
             $customer->setStoreId($this->storeManager->getStore()->getId());
             $customer->save();
         }
 
         $customer = $this->customerRepository->get($email);
-        $this->updateCustomer($customer, $res);
+        $this->updateCustomer($customer, $data);
         $this->customerRepository->save($customer);
 
         return $customer;
     }
 
+    /**
+     * Clears all items from the current customer's cart.
+     */
     private function clearCart()
     {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $cart = $objectManager->get(\Magento\Checkout\Model\Cart::class);
-        $quoteItems = $cart->getQuote()->getItemsCollection();
+        $quoteItems = $this->cart->getQuote()->getItemsCollection();
         foreach ($quoteItems as $item) {
-            $cart->removeItem($item->getId());
+            $this->cart->removeItem($item->getId());
         }
-        $cart->save();
+        $this->cart->save();
     }
 
+    /**
+     * Encodes the extension attributes of a given object into an array format.
+     *
+     * @param \Magento\Framework\Api\ExtensionAttributesInterface $attributes The extension attributes to encode.
+     * @return object Encoded extension attributes as an object.
+     */
     private function encodeExtensionAttributes($attributes)
     {
         $data = [];
@@ -270,11 +379,11 @@ class Index extends \Magento\Framework\App\Action\Action
             try {
                 if (is_array($value)) {
                     $values = [];
-                    foreach ($value as $key2 => $value2) {
+                    foreach ($value as $value2) {
                         $values[] = is_object($value2) ? $value2->getData() : $value2;
                     }
                     $data[$key] = $values;
-                } else if (is_object($value)) {
+                } elseif (is_object($value)) {
                     $data[$key] = $value->getValue();
                 } else {
                     $data[$key] = $value;
@@ -286,7 +395,13 @@ class Index extends \Magento\Framework\App\Action\Action
         return (object) $data;
     }
 
-    private function encodeProduct($product)
+    /**
+     * Encodes the product data, including extension attributes, custom attributes, and options.
+     *
+     * @param \Magento\Catalog\Model\Product $product The product to encode.
+     * @return object Encoded product data as an object.
+     */
+    private function encodeProduct(\Magento\Catalog\Model\Product $product)
     {
         $item_data = $product->getData();
 
@@ -315,13 +430,16 @@ class Index extends \Magento\Framework\App\Action\Action
         return (object) $item_data;
     }
 
+    /**
+     * Retrieves the current customer's cart details, including items and currency.
+     *
+     * @return array An array containing cart items and currency information.
+     */
     private function getCart()
     {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $cart = $objectManager->get(\Magento\Checkout\Model\Cart::class);
 
         // get array of all items what can be display directly
-        $itemsVisible = $cart->getQuote()->getAllVisibleItems();
+        $itemsVisible = $this->cart->getQuote()->getAllVisibleItems();
 
         // get array of all items what can be display directly
         $items = [];
@@ -353,65 +471,83 @@ class Index extends \Magento\Framework\App\Action\Action
         ];
     }
 
-    private function isApiAuthorized()
+    /**
+     * Checks if the API request is authorized by validating the provided token.
+     *
+     * @return bool True if the API is authorized, false otherwise.
+     */
+    private function checkAuthorization()
     {
-        $token = $this->getRequest()->getParam('token');
-        $res = $this->post('https://punchout.cloud/authorize', ["authorization" => $token]);
-        return $res["authorized"] == true;
+        $token = $this->getRequest()->getHeader('Authorization') ?? $this->getRequest()->getParam('token');
+        if (empty($token)) {
+            throw new Exception(
+                new Phrase('Unauthorized'),
+                401,
+                Exception::HTTP_UNAUTHORIZED
+            );
+        }
+        $response = $this->post('https://punchout.cloud/authorize', ["authorization" => $token]);
+        if ($response["authorized"] !== true) {
+            throw new Exception(
+                new Phrase('Unauthorized'),
+                401,
+                Exception::HTTP_UNAUTHORIZED
+            );
+        }
     }
 
     /**
+     * Executes the controller action based on the provided request parameters.
+     *
      * @return \Magento\Framework\App\ResponseInterface|\Magento\Framework\Controller\Result\Redirect|\Magento\Framework\Controller\ResultInterface
      */
     public function execute()
     {
         try {
-            $response = NULL;
+            $response = null;
             $path = $this->getRequest()->getParam('path');
-            if ($path == 'options.json') {
-                if ($this->isApiAuthorized()) {
-                    $response = $this->getOptions();
-                } else {
-                    $response = ["error" => "You're not authorized"];
-                }
-            } else if ($path == 'script') {
-                $punchout_id = $this->session->getPunchoutId();
-                if (empty($punchout_id)) {
-                    $response = "";
-                } else {
-                    $response = $this->get('https://punchout.cloud/punchout.js?id=' . $punchout_id);
-                }
-                $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
-                return $result
-                    ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
-                    ->setHeader('Content-Type', 'application/javascript;charset=UTF-8')
-                    ->setContents($response);
-            } else if ($path == 'cart.json') {
-                $response = $this->getCart();
-            } else if ($path == 'cart') {
-                $punchout_id = $this->session->getPunchoutId();
-                if (isset($punchout_id)) {
-                    $cart = $this->getCart();
-                    $data = [
-                        'cart' => [
-                            'Magento2' => $cart,
-                        ]
-                    ];
-                    $response = $this->post('https://punchout.network/cart/' . $punchout_id, $data);
-                } else {
-                    $response = ['message' => "You're not in a punchout session"];
-                }
-            } else if ($path == 'order.json') {
-                if ($this->isApiAuthorized()) {
+            switch ($path) {
+                case 'script':
+                    $punchoutId = $this->session->getPunchoutId();
+                    if (empty($punchout_id)) {
+                        $response = "";
+                    } else {
+                        $this->client->get('https://punchout.cloud/punchout.js?id=' . $punchoutId);
+                        $response = $this->client->getBody();
+
+                    }
+                    $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
+                    return $result
+                        ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
+                        ->setHeader('Content-Type', 'application/javascript;charset=UTF-8')
+                        ->setContents($response);
+                case 'cart':
+                    $punchoutId = $this->session->getPunchoutId();
+                    if (isset($punchoutId)) {
+                        $cart = $this->getCart();
+                        $data = [
+                            'cart' => [
+                                'Magento2' => $cart,
+                            ]
+                        ];
+                        $response = $this->post('https://punchout.cloud/cart/' . $punchoutId, $data);
+                        $this->session->logout();
+                    } else {
+                        $response = ['message' => "You're not in a punchout session"];
+                    }
+                    break;
+                case 'order.json':
+                    $this->checkAuthorization();
                     $body = $this->getRequest()->getContent();
                     $response = $this->createOrder(json_decode($body, true));
-                } else {
-                    $response = ["error" => "You're not authorized"];
-                }
+                    break;
+                case 'options.json':
+                    $this->checkAuthorization();
+                    $response = $this->getOptions();
+                    break;
             }
 
-
-            if ($response != NULL) {
+            if ($response != null) {
                 // return json response
                 $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
                 return $result
@@ -420,91 +556,87 @@ class Index extends \Magento\Framework\App\Action\Action
                     ->setContents(json_encode($response, JSON_PRETTY_PRINT));
             }
 
-            $resultRedirect = $this->resultRedirectFactory->create();
-
-            // no need for further sanization as we need to capture all the server data as is
-            $server = json_decode(json_encode($_SERVER), true);
-            // no need for further sanization as we need to capture all the query data as is
-            $query = json_decode(json_encode($_GET), true);
-
-            $data = array(
-                'server' => $server,
-                'body' => file_get_contents('php://input'),
-                'query' => $query,
-            );
+            $data = [
+                'body' => $this->request->getContent(),
+                'query' => $this->request->getParams(),
+            ];
 
             $res = $this->post('https://punchout.cloud/proxy', $data);
 
             if (!is_array($res) || !isset($res['action'])) {
-                if ($this->debug) {
-                    echo json_encode(['error' => 'Please use a valid punchout URL', 'debug' => $res]);
-                } else {
-                    echo json_encode(['error' => 'Please use a valid punchout URL']);
-                }
-                exit;
+                $result = $this->resultJsonFactory->create();
+                return $result->setHttpResponseCode(400)->setData([
+                    'error' => true,
+                    'message' => 'Please use a valid punchout URL.',
+                    'debug' => $res
+                ]);
             }
 
-            if ($res['action'] == 'print') {
-                header('content-type: application/xml');
-                $xml = new \SimpleXMLElement($res['body']);
-                echo $xml->asXML();
-            } else if ($res['action'] == 'login') {
+            switch ($res['action']) {
+                case 'print':
+                    $xml = new \SimpleXMLElement($res['body']);
+                    $result = $this->resultRawFactory->create();
+                    $result->setHeader('Content-Type', 'application/xml', true);
+                    $result->setContents($xml->asXML());
+                    return $result;
+                case 'login':
+                    if ($this->session->isLoggedIn()) {
+                        $lastCustomerId = $this->session->getId();
+                        $this->session->logout()->setLastCustomerId($lastCustomerId);
+                    }
 
-                // log out customer
-                if ($this->session->isLoggedIn()) {
-                    $lastCustomerId = $this->session->getId();
-                    $this->session->logout()->setLastCustomerId($lastCustomerId);
-                }
+                    // use customer data object to trigger login event
+                    $this->prepareCustomer($res);
 
-                // use customer data object to trigger login event
-                $customer_data = $this->prepareCustomer($res);
-                $this->_eventManager->dispatch('customer_data_object_login', ['customer' => $customer_data]);
+                    // use customer object to login
+                    $websiteId = $this->storeManager->getStore()->getWebsiteId();
 
-                // use customer object to login
-                $websiteId = $this->storeManager->getStore()->getWebsiteId();
-                $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-                $CustomerModel = $objectManager->create('Magento\Customer\Model\Customer');
-                $customer = $CustomerModel->setWebsiteId($websiteId)->loadByEmail($res['email']);
+                    $customer = $this->customerModel->setWebsiteId($websiteId)->loadByEmail($res['email']);
 
-                // login magento 2 customer
-                $this->session->setCustomerAsLoggedIn($customer);
-                $this->session->regenerateId();
+                    // login magento 2 customer
 
-                if ($this->cookieManager->getCookie('mage-cache-sessid')) {
-                    $metadata = $this->cookieMetadataFactory->createCookieMetadata();
-                    $metadata->setPath('/');
-                    $this->cookieManager->deleteCookie('mage-cache-sessid', $metadata);
-                }
+                    $this->session->regenerateId();
+                    $this->session->setCustomer($customer);
+                    $this->session->regenerateId();
 
-                $this->clearCart();
+                    $this->clearCart();
 
-                // Add punchout session ID to customer session
-                $this->session->setPunchoutId($res['punchout_id']);
+                    // Add punchout session ID to customer session
+                    $this->session->setPunchoutId($res['punchout_id']);
 
-                // Fake request method to trigger version update for private content
-                $request = $this->_request;
-                $request->setMethod('POST');
+                    // return html response
+                    $result = $this->resultRawFactory->create();
+                    $result->setHeader('Content-Type', 'text/html', true);
+                    $url = $res['redirect'] ?? '/';
+                    $result->setContents(
+                        "<html><head><title>Redirecting...</title></head><body><script>window.location.href = '"
+                        . $url .
+                        "';</script></body></html>"
+                    );
+                    return $result;
 
-                // redirect to punchout
-                $resultRedirect->setUrl('/');
-                return $resultRedirect;
-            } else {
-                if ($this->debug) {
-                    echo json_encode(['error' => 'Unknown action ' . $res['action'], 'debug' => $res]);
-                } else {
-                    echo json_encode(['error' => 'Unknown action ' . $res['action']]);
-                }
+                default:
+                    $result = $this->resultJsonFactory->create();
+                    return $result->setHttpResponseCode(400)->setData([
+                        'error' => true,
+                        'message' => 'Unknown action ' . $res['action']
+                    ]);
             }
         } catch (\Throwable $e) {
-            if ($this->debug) {
-                echo json_encode(["error" => $e->getMessage()]);
-            } else {
-                echo json_encode(['error' => 'Internal Server Error']);
-            }
+            $result = $this->resultJsonFactory->create();
+            return $result->setHttpResponseCode($e->getCode() == 401 ? 401 : 400)->setData([
+                'error' => true,
+                'message' => $e->getMessage()
+            ]);
         }
-        exit;
     }
 
+    /**
+     * Creates an order based on the provided order data.
+     *
+     * @param array $orderData The data required to create the order, including customer, items, and addresses.
+     * @return array An array containing the created order ID or an error message.
+     */
     private function createOrder($orderData)
     {
         //init the store id and website id @todo pass from array
@@ -543,25 +675,20 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->assignCustomer($customer); //Assign quote to customer
         $cart->setCustomerIsGuest(false);
 
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $objectFactory = $objectManager->get('\Magento\Framework\DataObject\Factory');
-
-        $productRepository = $objectManager->get('\Magento\Catalog\Model\ProductRepository');
-
         //add items in quote
         foreach ($orderData['items'] as $item) {
-            $product = NULL;
+            $product = null;
             if (isset($item['product'])) {
                 $product = $this->productFactory->create()->load($item['product']);
-            } else if (isset($item['sku'])) {
-                $product = $productRepository->get($item['sku']);
+            } elseif (isset($item['sku'])) {
+                $product = $this->productRepository->get($item['sku']);
                 if (!isset($product)) {
                     return ['error' => 'Coudnt find product with sku ' . $item['sku']];
                 }
             } else {
                 return ['error' => 'Required field product or sku'];
             }
-            $options = $objectFactory->create($item);
+            $options = $this->objectFactory->create($item);
             $cart->addProduct(
                 $product,
                 $options,
@@ -572,7 +699,6 @@ class Index extends \Magento\Framework\App\Action\Action
         $cart->getBillingAddress()->addData($orderData['billing']);
         $cart->getShippingAddress()->addData($orderData['shipping']);
 
-
         if ($orderData['ignore_address_validation']) {
             $cart->getBillingAddress()->setShouldIgnoreValidation(true);
             if (!$cart->getIsVirtual()) {
@@ -580,11 +706,10 @@ class Index extends \Magento\Framework\App\Action\Action
             }
         }
 
-        // Collect Rates, Set Shipping & Payment Method
+        // Collect Rates, Set Shipping & Payment Methoda
         $this->shippingRate
             ->setCode($orderData['shipping_method'])
-            ->getPrice(1);
-
+            ->getPrice();
 
         $shippingAddress = $cart->getShippingAddress();
 
@@ -609,54 +734,37 @@ class Index extends \Magento\Framework\App\Action\Action
         }
         $cart->getPayment()->importData($paymentData);
 
+        if (isset($orderData['data'])) {
+            foreach ($orderData['data'] as $key => $value) {
+                $cart->setData($key, $value);
+            }
+        }
+
         // Collect total and save
         $cart->collectTotals();
 
         // Submit the quote and create the order
-        $cart->save();
+        $this->cartRepository->save($cart);
         $cart = $this->cartRepository->get($cart->getId());
         $order_id = $this->cartManagement->placeOrder($cart->getId());
         return ['id' => $order_id];
     }
 
-    private function post($url, $data = null, $format = 'json', $response = 'json')
+    /**
+     * Sends a POST request to the specified URL with the provided data.
+     *
+     * @param string $url The URL to send the POST request to.
+     * @param array $data The data to include in the POST request body.
+     * @return array The decoded JSON response from the server.
+     */
+    private function post($url, $data)
     {
-        $headers = [
-            'Accept: application/' . $response,
-            'Content-Type: application/' . $format,
-        ];
-        $handle = curl_init();
-        curl_setopt($handle, CURLOPT_URL, $url);
-        curl_setopt($handle, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($handle, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($handle, CURLOPT_POST, true);
-        if ($format == 'json' && isset($data)) {
-            $data = json_encode($data);
-        }
-        curl_setopt($handle, CURLOPT_POSTFIELDS, $data);
-        if ($response == 'json') {
-            $response = json_decode(curl_exec($handle), true);
-        } else {
-            $response = curl_exec($handle);
-        }
-        curl_close($handle);
-        if (isset($response->error) && isset($response->message)) {
-            throw new \Magento\Framework\Exception\LocalizedException(__($response->message));
-        }
-        return $response;
-    }
-
-    public function get($url)
-    {
-        $handle = curl_init();
-        curl_setopt($handle, CURLOPT_URL, $url);
-        curl_setopt($handle, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
-        $response = curl_exec($handle);
-        curl_close($handle);
-        return $response;
+        $this->client->setHeaders([
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ]);
+        $this->client->post($url, json_encode($data));
+        $res = $this->client->getBody();
+        return json_decode($res, true);
     }
 }
