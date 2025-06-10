@@ -14,8 +14,6 @@ use Magento\Customer\Model\ResourceModel\Group\Collection;
 use Magento\Framework\Phrase;
 use Magento\Framework\Webapi\Exception;
 use Magento\Framework\Api\SearchCriteriaBuilder;
-use Magento\Company\Api\CompanyCustomerRepositoryInterface;
-use Magento\Company\Api\Data\CompanyCustomerInterfaceFactory;
 
 class Index extends Action
 {
@@ -169,10 +167,6 @@ class Index extends Action
      * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      */
 
-    // B2B dependencies
-    private $companyCustomerRepository;
-    private $companyCustomerFactory;
-
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
         \Magento\Customer\Model\Session $session,
@@ -197,9 +191,7 @@ class Index extends Action
         Factory $objectFactory,
         Customer $customerModel,
         RawFactory $resultRawFactory,
-        SearchCriteriaBuilder $searchCriteriaBuilder,
-        CompanyCustomerRepositoryInterface $companyCustomerRepository = null,
-        CompanyCustomerInterfaceFactory $companyCustomerFactory = null
+        SearchCriteriaBuilder $searchCriteriaBuilder
     ) {
         $this->session = $session;
         $this->url = $urlFactory->create();
@@ -224,9 +216,6 @@ class Index extends Action
         $this->customerModel = $customerModel;
         $this->resultRawFactory = $resultRawFactory;
         $this->searchCriteriaBuilder = $searchCriteriaBuilder;
-        $this->companyCustomerRepository = $companyCustomerRepository;
-        $this->companyCustomerFactory = $companyCustomerFactory;
-
         parent::__construct($context);
     }
 
@@ -362,19 +351,24 @@ class Index extends Action
      */
     private function assignCustomerToCompany($customerId, $companyId, $role = 'company_user')
     {
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+        $factory = $objectManager->get(\Magento\Company\Api\Data\CompanyCustomerInterfaceFactory::class);
+
         // Load customer
         $customer = $this->customerRepository->getById($customerId);
 
         // Create a company-customer link
-        $companyCustomer = $this->companyCustomerFactory->create();
+        $companyCustomer = $factory->create();
         $companyCustomer->setCustomerId($customer->getId());
         $companyCustomer->setCompanyId($companyId);
         $companyCustomer->setStatus(1); // Active
         $companyCustomer->setJobTitle('Company User'); // Optional
         $companyCustomer->setCompanyRole($role); // e.g. 'company_admin' or a specific role ID
 
+
         // Save the link
-        $this->companyCustomerRepository->save($companyCustomer);
+        $objectManager->get(\Magento\Company\Api\CompanyCustomerRepositoryInterface::class)
+            ->save($companyCustomer);
     }
 
     /**
