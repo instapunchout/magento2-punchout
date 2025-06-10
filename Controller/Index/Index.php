@@ -14,6 +14,8 @@ use Magento\Customer\Model\ResourceModel\Group\Collection;
 use Magento\Framework\Phrase;
 use Magento\Framework\Webapi\Exception;
 use Magento\Framework\Api\SearchCriteriaBuilder;
+use Magento\Company\Api\CompanyCustomerRepositoryInterface;
+use Magento\Company\Api\Data\CompanyCustomerInterfaceFactory;
 
 class Index extends Action
 {
@@ -166,6 +168,11 @@ class Index extends Action
      * @param \Magento\Framework\Controller\Result\RawFactory $resultRawFactory
      * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      */
+
+    // B2B dependencies
+    private $companyCustomerRepository;
+    private $companyCustomerFactory;
+
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
         \Magento\Customer\Model\Session $session,
@@ -190,7 +197,9 @@ class Index extends Action
         Factory $objectFactory,
         Customer $customerModel,
         RawFactory $resultRawFactory,
-        SearchCriteriaBuilder $searchCriteriaBuilder
+        SearchCriteriaBuilder $searchCriteriaBuilder,
+        CompanyCustomerRepositoryInterface $companyCustomerRepository = null,
+        CompanyCustomerInterfaceFactory $companyCustomerFactory = null
     ) {
         $this->session = $session;
         $this->url = $urlFactory->create();
@@ -215,6 +224,9 @@ class Index extends Action
         $this->customerModel = $customerModel;
         $this->resultRawFactory = $resultRawFactory;
         $this->searchCriteriaBuilder = $searchCriteriaBuilder;
+        $this->companyCustomerRepository = $companyCustomerRepository;
+        $this->companyCustomerFactory = $companyCustomerFactory;
+
         parent::__construct($context);
     }
 
@@ -328,10 +340,41 @@ class Index extends Action
                 $attributes->setAwCaCompanyUser($company_user);
                 $customer->setExtensionAttributes($attributes);
                 $updated = true;
+            } elseif (class_exists(\Magento\Company\Model\CompanyRepository::class)) {
+                $this->assignCustomerToCompany(
+                    $customer->getId(),
+                    $res['company_id'],
+                    $res['company_role'] ?? 'company_user'
+                );
+                $updated = true;
             }
         }
 
         return $updated;
+    }
+
+    /**
+     * Assigns a customer to a company with a specific role.
+     *
+     * @param int $customerId The ID of the customer to assign.
+     * @param int $companyId The ID of the company to assign the customer to.
+     * @param string $role The role of the customer within the company (default: 'company_user').
+     */
+    private function assignCustomerToCompany($customerId, $companyId, $role = 'company_user')
+    {
+        // Load customer
+        $customer = $this->customerRepository->getById($customerId);
+
+        // Create a company-customer link
+        $companyCustomer = $this->companyCustomerFactory->create();
+        $companyCustomer->setCustomerId($customer->getId());
+        $companyCustomer->setCompanyId($companyId);
+        $companyCustomer->setStatus(1); // Active
+        $companyCustomer->setJobTitle('Company User'); // Optional
+        $companyCustomer->setCompanyRole($role); // e.g. 'company_admin' or a specific role ID
+
+        // Save the link
+        $this->companyCustomerRepository->save($companyCustomer);
     }
 
     /**
@@ -352,7 +395,7 @@ class Index extends Action
             $customer->setFirstname($data['firstname']);
             $customer->setLastname($data['lastname']);
             $customer->setPassword($data['password']);
-            $customer->setStoreId($this->storeManager->getStore()->getId());
+            $customer->setStoreId($data['store_id'] ?? $this->storeManager->getStore()->getId());
             $customer->save();
         }
 
@@ -592,7 +635,7 @@ class Index extends Action
                     $this->prepareCustomer($res);
 
                     // use customer object to login
-                    $websiteId = $this->storeManager->getStore()->getWebsiteId();
+                    $websiteId = $res['website_id'] ?? $this->storeManager->getStore()->getWebsiteId();
 
                     $customer = $this->customerModel->setWebsiteId($websiteId)->loadByEmail($res['email']);
 
