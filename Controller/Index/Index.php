@@ -329,12 +329,10 @@ class Index extends Action
                 $attributes->setAwCaCompanyUser($company_user);
                 $customer->setExtensionAttributes($attributes);
                 $updated = true;
-            } elseif (class_exists(\Magento\Company\Model\CompanyRepository::class)) {
-                $this->assignCustomerToCompany(
-                    $customer->getId(),
-                    $res['company_id'],
-                    $res['company_role'] ?? 'company_user'
-                );
+            } elseif (class_exists(\Magento\Company\Api\CompanyManagementInterface::class)) {
+
+                $this->assignCustomerToCompany($res['company_id'], $customer, 'Company User');
+
                 $updated = true;
             }
         }
@@ -343,32 +341,32 @@ class Index extends Action
     }
 
     /**
-     * Assigns a customer to a company with a specific role.
+     * Assigns an existing customer to an existing company structure using the company ID.
      *
-     * @param int $customerId The ID of the customer to assign.
-     * @param int $companyId The ID of the company to assign the customer to.
-     * @param string $role The role of the customer within the company (default: 'company_user').
+     * @param int $companyId
+     * @param \Magento\Customer\Api\Data\CustomerInterface $customer
+     * @param string $jobTitle
+     * @return void
+     * @throws LocalizedException
      */
-    private function assignCustomerToCompany($customerId, $companyId, $role = 'company_user')
+    private function assignCustomerToCompany(int $companyId, \Magento\Customer\Api\Data\CustomerInterface $customer, string $jobTitle)
     {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $factory = $objectManager->get(\Magento\Company\Api\Data\CompanyCustomerInterfaceFactory::class);
 
-        // Load customer
-        $customer = $this->customerRepository->getById($customerId);
+        // Dynamically load CompanyManagementInterface
+        $companyManagement = $objectManager->get(\Magento\Company\Api\CompanyManagementInterface::class);
 
-        // Create a company-customer link
-        $companyCustomer = $factory->create();
-        $companyCustomer->setCustomerId($customer->getId());
-        $companyCustomer->setCompanyId($companyId);
-        $companyCustomer->setStatus(1); // Active
-        $companyCustomer->setJobTitle('Company User'); // Optional
-        $companyCustomer->setCompanyRole($role); // e.g. 'company_admin' or a specific role ID
+        // First, link the customer to the company
+        $companyManagement->assignCustomer($companyId, $customer->getId());
 
-
-        // Save the link
-        $objectManager->get(\Magento\Company\Api\CompanyCustomerRepositoryInterface::class)
-            ->save($companyCustomer);
+        // Then, update the customer's attributes
+        $customerExtension = $customer->getExtensionAttributes();
+        $companyAttributes = $customerExtension->getCompanyAttributes();
+        $companyAttributes->setCompanyId($companyId);
+        $companyAttributes->setStatus(\Magento\Company\Api\Data\CompanyCustomerInterface::STATUS_ACTIVE);
+        $companyAttributes->setJobTitle($jobTitle);
+        $customerExtension->setCompanyAttributes($companyAttributes);
+        $this->customerRepository->save($customer);
     }
 
     /**
