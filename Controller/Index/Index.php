@@ -403,11 +403,16 @@ class Index extends Action
      */
     private function clearCart()
     {
-        $quoteItems = $this->cart->getQuote()->getItemsCollection();
-        foreach ($quoteItems as $item) {
-            $this->cart->removeItem($item->getId());
+        try {
+            $quote = $this->cart->getQuote();
+            if ($quote->getItemsCount() > 0) {
+                $quote->removeAllItems();
+                $quote->setIsActive(false);
+                $this->cartRepository->save($quote);
+            }
+        } catch (\Exception $e) {
+            // If the quote is already inactive, we can ignore this error
         }
-        $this->cart->save();
     }
 
     /**
