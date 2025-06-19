@@ -682,6 +682,17 @@ class Index extends Action
      */
     private function createOrder($orderData)
     {
+        if (isset($orderData['quote_id'])) {
+            // If quote_id is provided, place the order directly
+            $cartId = $orderData['quote_id'];
+            try {
+                $orderId = $this->cartManagement->placeOrder($cartId);
+                return ['id' => $orderId];
+            } catch (\Exception $e) {
+                return ['error' => $e->getMessage()];
+            }
+        }
+
         //init the store id and website id @todo pass from array
         $store = $this->storeManager->getStore();
         $websiteId = $this->storeManager->getStore()->getWebsiteId();
