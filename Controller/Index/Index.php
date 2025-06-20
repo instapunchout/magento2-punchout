@@ -686,6 +686,52 @@ class Index extends Action
             // If quote_id is provided, place the order directly
             $cartId = $orderData['quote_id'];
             try {
+
+                $cart = $this->cartRepository->get($cartId);
+                if (!$cart->getId()) {
+                    return ['error' => 'Quote with ID ' . $cartId . ' does not exist.'];
+                }
+                $updated = false;
+
+                if (isset($orderData['shipping_method'])) {
+
+                    // Collect Rates, Set Shipping & Payment Methoda
+                    $this->shippingRate
+                        ->setCode($orderData['shipping_method'])
+                        ->getPrice();
+
+                    $shippingAddress = $cart->getShippingAddress();
+
+                    //@todo set in order data
+                    $shippingAddress->setCollectShippingRates(true)
+                        ->collectShippingRates()
+                        ->setShippingMethod($orderData['shipping_method']); // 'flatrate_flatrate'); //shipping method
+                    $cart->getShippingAddress()->addShippingRate($this->shippingRate);
+
+                    $updated = true;
+                }
+
+                if (isset($orderData['payment_method'])) {
+                    $cart->setPaymentMethod($orderData['payment_method']); //'checkmo'); //payment method
+                    // Set sales order payment
+                    $paymentData = ['method' => $orderData['payment_method']];
+                    if (isset($orderData['po'])) {
+                        $paymentData['po_number'] = $orderData['po'];
+                    }
+                    $cart->getPayment()->importData($paymentData);
+                    $updated = true;
+                }
+
+                if (isset($orderData['data'])) {
+                    foreach ($orderData['data'] as $key => $value) {
+                        $cart->setData($key, $value);
+                        $updated = true;
+                    }
+                }
+                if ($updated) {
+                    $this->cartRepository->save($cart);
+                }
+
                 $orderId = $this->cartManagement->placeOrder($cartId);
                 return ['id' => $orderId];
             } catch (\Exception $e) {
