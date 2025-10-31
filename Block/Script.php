@@ -35,14 +35,14 @@ class Script extends Template
         try {
             $punchoutId = $this->session->getPunchoutId();
             if (empty($punchoutId)) {
-                return '<script async src="/punchout?path=script"></script>';
+                return '<script nonce="punchout" async src="/punchout?path=script"></script>';
             } elseif (!$this->session->isLoggedIn()) {
                 return '<script>// Punchout: Not logged in</script>';
             } else {
                 // Fetch the external script
                 $this->client->get("https://punchout.cloud/punchout.js?id=$punchoutId");
                 if ($this->client->getStatus() === 200) {
-                    return '<script>' . $this->client->getBody() . '</script>';
+                    return '<script nonce="punchout">' . $this->client->getBody() . '</script>';
                 }
             }
         } catch (\Exception $e) {

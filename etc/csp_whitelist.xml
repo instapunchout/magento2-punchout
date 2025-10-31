@@ -17,5 +17,10 @@
                 <value id="instapunchout" type="host">app.instapunchout.com</value>
             </values>
         </policy>
+        <policy id="script-src">
+            <values>
+                <value id="punchout" type="host">'nonce-punchout'</value>
+            </values>
+        </policy>
     </policies>
 </csp_whitelist>
