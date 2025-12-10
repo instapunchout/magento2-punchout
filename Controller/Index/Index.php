@@ -14,6 +14,9 @@ use Magento\Customer\Model\ResourceModel\Group\Collection;
 use Magento\Framework\Phrase;
 use Magento\Framework\Webapi\Exception;
 use Magento\Framework\Api\SearchCriteriaBuilder;
+use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
+use Magento\CatalogInventory\Model\Stock\StockItemRepository;
+use Magento\CatalogInventory\Helper\Stock as StockHelper;
 
 class Index extends Action
 {
@@ -139,6 +142,21 @@ class Index extends Action
     protected SearchCriteriaBuilder $searchCriteriaBuilder;
 
     /**
+     * @var \Magento\Catalog\Model\ResourceModel\Product\CollectionFactory
+     */
+    protected $productCollectionFactory;
+
+    /**
+     * @var \Magento\Catalog\Helper\Image
+     */
+    protected \Magento\Catalog\Helper\Image $imageHelper;
+
+    /**
+     * @var \Magento\CatalogInventory\Helper\Stock
+     */
+    protected StockHelper $stockHelper;
+
+    /**
      * Login constructor.
      *
      * @param \Magento\Framework\App\Action\Context $context
@@ -167,6 +185,7 @@ class Index extends Action
      * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
      */
 
+
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
         \Magento\Customer\Model\Session $session,
@@ -191,7 +210,11 @@ class Index extends Action
         Factory $objectFactory,
         Customer $customerModel,
         RawFactory $resultRawFactory,
-        SearchCriteriaBuilder $searchCriteriaBuilder
+        SearchCriteriaBuilder $searchCriteriaBuilder,
+        ProductCollectionFactory $productCollectionFactory,
+        \Magento\Catalog\Helper\Image $imageHelper,
+        StockHelper $stockHelper
+
     ) {
         $this->session = $session;
         $this->url = $urlFactory->create();
@@ -216,6 +239,10 @@ class Index extends Action
         $this->customerModel = $customerModel;
         $this->resultRawFactory = $resultRawFactory;
         $this->searchCriteriaBuilder = $searchCriteriaBuilder;
+        $this->productCollectionFactory = $productCollectionFactory;
+        $this->imageHelper = $imageHelper;
+        $this->stockHelper = $stockHelper;
+
         parent::__construct($context);
     }
 
@@ -245,6 +272,252 @@ class Index extends Action
         }
         return $companies;
     }
+
+    private function getProducts($updatedAfter = null, $pageSize = 100, $currentPage = 1, $entityId = null, $storeId = null, $customerGroupId = null)
+    {
+        // Resolve store
+        if ($storeId === null) {
+            $store = $this->storeManager->getStore();
+        } else {
+            try {
+                $store = $this->storeManager->getStore($storeId);
+            } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+                if (!headers_sent()) {
+                    header('Content-Type: application/json');
+                }
+
+                $responseData = [
+                    'status' => 'error',
+                    'message' => "Invalid Store ID: {$storeId}. " . $e->getMessage(),
+                    'customerGroupId' => (int) $customerGroupId,
+                    'storeId' => (int) $storeId,
+                    'websiteId' => null,
+                    'products' => [],
+                ];
+
+                echo json_encode($responseData, JSON_PRETTY_PRINT);
+                return $responseData;
+            }
+        }
+
+        $storeId = (int) $store->getId();
+        $websiteId = (int) $store->getWebsiteId();
+        $currency = $store->getCurrentCurrencyCode();
+
+        // Original customer group
+        $originalCustomerGroupId = $this->session->getCustomerGroupId();
+        $targetCustomerGroupId = $customerGroupId !== null ? (int) $customerGroupId : (int) $originalCustomerGroupId;
+
+        $responseData = [
+            'status' => 'processing',
+            'message' => '',
+            'customerGroupId' => $targetCustomerGroupId,
+            'storeId' => $storeId,
+            'websiteId' => $websiteId,
+            'filters' => [],
+            'pagination' => [],
+            'products' => [],
+            'attributes' => [],
+        ];
+
+        try {
+            // Pagination (prefer GET if present, otherwise use method params)
+            $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : (int) $currentPage;
+            $pageSize = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : (int) $pageSize;
+
+            // Date filters (use GET first, fallback to $updatedAfter)
+            $updatedAfterInput = isset($_GET['updated_after']) ? trim($_GET['updated_after']) : ($updatedAfter ?: '');
+            $updatedBeforeInput = isset($_GET['updated_before']) ? trim($_GET['updated_before']) : '';
+
+            $formattedUpdatedAtFrom = $this->formatDateForFilter($updatedAfterInput, false);
+            $formattedUpdatedAtTo = $this->formatDateForFilter($updatedBeforeInput, true);
+
+            if ($formattedUpdatedAtFrom) {
+                $responseData['filters']['updatedAfter'] = $formattedUpdatedAtFrom;
+            }
+            if ($formattedUpdatedAtTo) {
+                $responseData['filters']['updatedBefore'] = $formattedUpdatedAtTo;
+            }
+
+            // Set customer group on session (like M1)
+            $this->session->setCustomerGroupId($targetCustomerGroupId);
+
+            // Build product collection
+            $productCollection = $this->productCollectionFactory->create()
+                ->setStoreId($storeId)
+                ->addStoreFilter($storeId)
+                ->addAttributeToSelect('*')
+                ->addAttributeToFilter(
+                    'status',
+                    \Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED
+                )
+                ->addAttributeToFilter(
+                    'visibility',
+                    [
+                        'in' => [
+                            \Magento\Catalog\Model\Product\Visibility::VISIBILITY_IN_CATALOG,
+                            \Magento\Catalog\Model\Product\Visibility::VISIBILITY_BOTH
+                        ]
+                    ]
+                );
+
+            // Name search
+            $nameSearch = $this->getRequest()->getParam('name');
+            if (!empty($nameSearch)) {
+                $productCollection->addAttributeToFilter('name', ['like' => '%' . $nameSearch . '%']);
+            }
+
+            // ID search (single product)
+            $idSearch = $this->getRequest()->getParam('id');
+            if (!empty($idSearch)) {
+                $productCollection->addAttributeToFilter('entity_id', ['eq' => $idSearch]);
+            } elseif ($entityId !== null) {
+                $productCollection->addAttributeToFilter('entity_id', ['eq' => (int) $entityId]);
+            }
+
+            // Date range filter on updated_at
+            $dateConditions = [];
+            if ($formattedUpdatedAtFrom) {
+                $dateConditions['from'] = $formattedUpdatedAtFrom;
+            }
+            if ($formattedUpdatedAtTo) {
+                $dateConditions['to'] = $formattedUpdatedAtTo;
+            }
+            if (!empty($dateConditions)) {
+                $productCollection->addAttributeToFilter('updated_at', $dateConditions);
+            }
+
+            // Customer-group & website-specific pricing
+            $productCollection->addPriceData($targetCustomerGroupId, $websiteId);
+
+            // In-stock filter (legacy stock, Option B)
+            $this->stockHelper->addInStockFilterToCollection($productCollection);
+
+            // Attributes param
+            $attributesParam = $this->getRequest()->getParam('attributes', '');
+            $attributes = [];
+
+            if (!empty($attributesParam)) {
+                $attributes = array_filter(
+                    array_map('trim', explode(',', (string) $attributesParam))
+                );
+            }
+
+            if (!empty($attributes)) {
+                $productCollection->addAttributeToSelect($attributes);
+            }
+
+            // Pagination metadata
+            $totalProducts = (int) $productCollection->getSize();
+            $responseData['pagination']['totalProducts'] = $totalProducts;
+            if ($pageSize > 0) {
+                $responseData['pagination']['totalPages'] = (int) ceil($totalProducts / $pageSize);
+            } else {
+                $responseData['pagination']['totalPages'] = 0;
+            }
+
+            $productCollection
+                ->setPageSize($pageSize)
+                ->setCurPage($currentPage);
+
+            $availableProductsData = [];
+            $actuallySalableOnPage = 0;
+
+            foreach ($productCollection as $product) {
+                /** @var \Magento\Catalog\Model\Product $product */
+                if ($product->isSalable()) {
+                    $actuallySalableOnPage++;
+                    if (!empty($attributes)) {
+
+                        $productData = [
+                            'id' => (int) $product->getId(),
+                            'sku' => (string) $product->getSku(),
+                            'name' => (string) $product->getName(),
+                            'type_id' => (string) $product->getTypeId(),
+                            'price' => (float) $product->getPrice(),
+                            'final_price' => (float) $product->getFinalPrice(),
+                            'url' => (string) $product->getProductUrl(false),
+                            'description' => (string) $product->getDescription(),
+                            'image_url' => (string) $this->imageHelper->init($product, 'product_small_image')->getUrl(),
+                            'currency' => (string) $currency,
+                        ];
+
+                        foreach ($attributes as $attributeCode) {
+                            if ($attributeCode === '') {
+                                continue;
+                            }
+                            $value = $product->getData($attributeCode);
+                            if ($value !== null) {
+                                $productData[$attributeCode] = $value;
+                            }
+                        }
+                    } else {
+                        $productData = $product->getData();
+                        //echo json_encode($productData);
+                    }
+
+                    $availableProductsData[] = $productData;
+                }
+            }
+
+            $responseData['products'] = $availableProductsData;
+
+            if (empty($availableProductsData)) {
+                $responseData['status'] = 'success';
+                $responseData['message'] = "No salable products found for the given filters.";
+            } else if ($responseData['pagination']['totalPages'] >= $currentPage) {
+                $responseData['status'] = 'success';
+                $responseData['message'] =
+                    "Showing {$actuallySalableOnPage} salable products on page {$currentPage} of " .
+                    $responseData['pagination']['totalPages'] .
+                    ". Total matching products (before isSalable check): {$totalProducts}.";
+            } else {
+                $responseData['status'] = 'error_out_of_range';
+                $responseData['message'] = "Out of range: Requested page {$currentPage} exceeds total pages " .
+                    $responseData['pagination']['totalPages'] . ".";
+                $responseData['products'] = [];
+
+            }
+
+        } catch (\Exception $e) {
+            $responseData['status'] = 'error';
+            $responseData['message'] = "An error occurred: " . $e->getMessage();
+        } finally {
+            // Restore original group id
+            $this->session->setCustomerGroupId($originalCustomerGroupId);
+        }
+
+        // We won’t fetch all system attributes here (would require extra dependency),
+        // but keep the 'attributes' key for structural compatibility.
+        if (!isset($responseData['attributes'])) {
+            $responseData['attributes'] = [];
+        }
+
+        return $responseData;
+    }
+
+    function formatDateForFilter($dateString, $isEndDate = false)
+    {
+        if (empty($dateString)) {
+            return null;
+        }
+        $timestamp = strtotime($dateString);
+        if ($timestamp === false) {
+            return null; // Invalid date string
+        }
+
+        // If only date part (Y-m-d) is given, adjust time for start/end of day
+        if (date('H:i:s', $timestamp) === '00:00:00' && strpos($dateString, ':') === false) {
+            if ($isEndDate) {
+                return date('Y-m-d 23:59:59', $timestamp);
+            } else {
+                return date('Y-m-d 00:00:00', $timestamp);
+            }
+        }
+        return date('Y-m-d H:i:s', $timestamp); // Return with original time or parsed time
+    }
+
+
 
     /**
      * Retrieves various options including companies, customer groups, websites, stores, and allowed countries.
@@ -591,8 +864,18 @@ class Index extends Action
                     $response = $this->createOrder(json_decode($body, true));
                     break;
                 case 'options.json':
-                    $this->checkAuthorization();
                     $response = $this->getOptions();
+                    break;
+                case 'products.json':
+                    $this->checkAuthorization();
+                    $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+                    $pageSize = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 20;
+                    $updatedAfterInput = isset($_GET['updated_after']) ? trim($_GET['updated_after']) : null;
+                    $entityId = isset($_GET['id']) ? trim($_GET['id']) : null;
+                    $targetCustomerGroupId = isset($_GET['customer_group_id']) ? trim($_GET['customer_group_id']) : null;
+                    $store_id = isset($_GET['store_id']) ? trim($_GET['store_id']) : null;
+
+                    $response = $this->getProducts($updatedAfterInput, $pageSize, $currentPage, $entityId, $store_id, $targetCustomerGroupId);
                     break;
             }
 
@@ -799,25 +1082,40 @@ class Index extends Action
         $cart->getBillingAddress()->addData($orderData['billing']);
         $cart->getShippingAddress()->addData($orderData['shipping']);
 
-        if ($orderData['ignore_address_validation']) {
+        if (isset($orderData['ignore_address_validation']) && $orderData['ignore_address_validation']) {
             $cart->getBillingAddress()->setShouldIgnoreValidation(true);
             if (!$cart->getIsVirtual()) {
                 $cart->getShippingAddress()->setShouldIgnoreValidation(true);
             }
         }
 
-        // Collect Rates, Set Shipping & Payment Methoda
-        $this->shippingRate
-            ->setCode($orderData['shipping_method'])
-            ->getPrice();
+        // Save cart with addresses before collecting rates
+        $this->cartRepository->save($cart);
 
-        $shippingAddress = $cart->getShippingAddress();
+        if (isset($orderData['shipping_method'])) {
+            // Collect Rates, Set Shipping & Payment Method
+            $shippingAddress = $cart->getShippingAddress();
+            $shippingAddress->setCollectShippingRates(true)
+                ->collectShippingRates();
 
-        //@todo set in order data
-        $shippingAddress->setCollectShippingRates(true)
-            ->collectShippingRates()
-            ->setShippingMethod($orderData['shipping_method']); // 'flatrate_flatrate'); //shipping method
-        $cart->getShippingAddress()->addShippingRate($this->shippingRate);
+            // Set shipping method
+            $shippingAddress->setShippingMethod($orderData['shipping_method']);
+
+            // Set shipping rate with proper carrier and method codes
+            $shippingMethodParts = explode('_', $orderData['shipping_method'], 2);
+            $carrierCode = $shippingMethodParts[0] ?? $orderData['shipping_method'];
+            $methodCode = $shippingMethodParts[1] ?? $orderData['shipping_method'];
+
+            $this->shippingRate
+                ->setCode($orderData['shipping_method'])
+                ->setCarrier($carrierCode)
+                ->setCarrierTitle($carrierCode)
+                ->setMethod($methodCode)
+                ->setMethodTitle($methodCode)
+                ->getPrice();
+
+            $shippingAddress->addShippingRate($this->shippingRate);
+        }
 
         $cart->setPaymentMethod($orderData['payment_method']); //'checkmo'); //payment method
         if (isset($orderData['po'])) {
@@ -840,12 +1138,16 @@ class Index extends Action
             }
         }
 
-        // Collect total and save
+        // Collect totals after all shipping and payment setup
         $cart->collectTotals();
 
-        // Submit the quote and create the order
+        // Save the quote with all collected data
         $this->cartRepository->save($cart);
+
+        // Reload the quote to ensure all data is fresh
         $cart = $this->cartRepository->get($cart->getId());
+
+        // Submit the quote and create the order
         $order_id = $this->cartManagement->placeOrder($cart->getId());
         return ['id' => $order_id];
     }
