@@ -845,12 +845,19 @@ class Index extends Action
                         ->setContents($response);
                 case 'cart':
                     $punchoutId = $this->session->getPunchoutId();
+                    if (!isset($punchoutId)) {
+                        $punchoutId = $this->getRequest()->getParam('punchout_id');
+                    }
                     if (isset($punchoutId)) {
                         $cart = $this->getCart();
+                        $rawBody = $this->getRequest()->getContent();
+                        $custom = json_decode($rawBody, true);
+
                         $data = [
                             'cart' => [
                                 'Magento2' => $cart,
-                            ]
+                            ],
+                            'custom' => $custom,
                         ];
                         $response = $this->post('https://punchout.cloud/cart/' . $punchoutId, $data);
                         $this->session->logout();
@@ -980,8 +987,14 @@ class Index extends Action
 
                     // Collect Rates, Set Shipping & Payment Methoda
                     $this->shippingRate
-                        ->setCode($orderData['shipping_method'])
-                        ->getPrice();
+                        ->setCode($orderData['shipping_method']);
+
+                    // Set custom shipping cost if provided
+                    if (isset($orderData['shipping_cost'])) {
+                        $this->shippingRate->setPrice($orderData['shipping_cost']);
+                    } else {
+                        $this->shippingRate->getPrice();
+                    }
 
                     $shippingAddress = $cart->getShippingAddress();
 
@@ -1111,8 +1124,14 @@ class Index extends Action
                 ->setCarrier($carrierCode)
                 ->setCarrierTitle($carrierCode)
                 ->setMethod($methodCode)
-                ->setMethodTitle($methodCode)
-                ->getPrice();
+                ->setMethodTitle($methodCode);
+
+            // Set custom shipping cost if provided
+            if (isset($orderData['shipping_cost'])) {
+                $this->shippingRate->setPrice($orderData['shipping_cost']);
+            } else {
+                $this->shippingRate->getPrice();
+            }
 
             $shippingAddress->addShippingRate($this->shippingRate);
         }
