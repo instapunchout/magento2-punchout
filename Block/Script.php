@@ -32,12 +32,26 @@ class Script extends Template
      */
     public function getInlineScript(): string
     {
+        $dynamicScript = '<script nonce="punchout">
+(function () {
+var punchoutParam = new URLSearchParams(window.location.search).get("punchout");
+if (punchoutParam) { localStorage.setItem("punchoutSessionId", punchoutParam); }
+var punchoutId = localStorage.getItem("punchoutSessionId");
+if (punchoutId) {
+var script = document.createElement("script");
+script.src = "https://punchout.cloud/punchout.js?id=" +
+encodeURIComponent(punchoutId);
+script.nonce = "punchout";
+document.head.appendChild(script);
+}
+})();
+</script>';
         try {
             $punchoutId = $this->session->getPunchoutId();
             if (empty($punchoutId)) {
-                return '<script nonce="punchout" async src="/punchout?path=script"></script>';
+                return '<script nonce="punchout" async src="/punchout?path=script"></script>' . $dynamicScript;
             } elseif (!$this->session->isLoggedIn()) {
-                return '<script>// Punchout: Not logged in</script>';
+                return '<script>// Punchout: Not logged in</script>' . $dynamicScript;
             } else {
                 // Fetch the external script
                 $this->client->get("https://punchout.cloud/punchout.js?id=$punchoutId");
