@@ -17,6 +17,7 @@ use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\CatalogInventory\Model\Stock\StockItemRepository;
 use Magento\CatalogInventory\Helper\Stock as StockHelper;
+use Magento\Sales\Api\OrderRepositoryInterface;
 
 class Index extends Action
 {
@@ -76,6 +77,11 @@ class Index extends Action
      * @var \Magento\Quote\Model\Quote\Address\Rate
      */
     private $shippingRate;
+
+    /**
+     * @var OrderRepositoryInterface
+     */
+    private $orderRepository;
 
     /**
      * @var \Magento\Catalog\Model\ProductFactory
@@ -213,7 +219,8 @@ class Index extends Action
         SearchCriteriaBuilder $searchCriteriaBuilder,
         ProductCollectionFactory $productCollectionFactory,
         \Magento\Catalog\Helper\Image $imageHelper,
-        StockHelper $stockHelper
+        StockHelper $stockHelper,
+        OrderRepositoryInterface $orderRepository
 
     ) {
         $this->session = $session;
@@ -242,6 +249,7 @@ class Index extends Action
         $this->productCollectionFactory = $productCollectionFactory;
         $this->imageHelper = $imageHelper;
         $this->stockHelper = $stockHelper;
+        $this->orderRepository = $orderRepository;
 
         parent::__construct($context);
     }
@@ -818,6 +826,17 @@ class Index extends Action
         }
     }
 
+    public function printResponse($response)
+    {
+        // return json response
+        $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
+        return $result
+            ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
+            ->setHeader('Content-Type', 'application/json;charset=UTF-8')
+            ->setContents(json_encode($response, JSON_PRETTY_PRINT));
+
+    }
+
     /**
      * Executes the controller action based on the provided request parameters.
      *
@@ -873,6 +892,10 @@ class Index extends Action
                 case 'options.json':
                     $response = $this->getOptions();
                     break;
+                case 'invoices.json':
+                    $this->checkAuthorization();
+                    $response = $this->getInvoices();
+                    return $this->printResponse($response);
                 case 'products.json':
                     $this->checkAuthorization();
                     $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
@@ -887,12 +910,7 @@ class Index extends Action
             }
 
             if ($response != null) {
-                // return json response
-                $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
-                return $result
-                    ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
-                    ->setHeader('Content-Type', 'application/json;charset=UTF-8')
-                    ->setContents(json_encode($response, JSON_PRETTY_PRINT));
+                return $this->printResponse($response);
             }
 
             $data = [
@@ -1169,6 +1187,41 @@ class Index extends Action
         // Submit the quote and create the order
         $order_id = $this->cartManagement->placeOrder($cart->getId());
         return ['id' => $order_id];
+    }
+
+    private function getInvoices()
+    {
+        $order_id = $this->getRequest()->getParam('order_id');
+        $order_ids = [];
+        if (empty($order_id)) {
+            $order_ids = $this->getRequest()->getParam('order_ids');
+            if (empty($order_ids)) {
+                return ["error" => "order_id or order_ids is required"];
+            }
+            $order_ids = explode(",", $order_ids);
+        } else {
+            $order_ids[] = $order_id;
+        }
+        $data = [];
+
+        foreach ($order_ids as $order_id) {
+            /** @var \Magento\Sales\Model\Order $order */
+            $order = $this->orderRepository->get((int) $order_id);
+            if (!$order->getId()) {
+                continue;
+            }
+            $invoices = $order->getInvoiceCollection();
+            foreach ($invoices as $invoice) {
+                $invoice_data = $invoice->getData();
+                $invoice_data['items'] = [];
+                foreach ($invoice->getItemsCollection() as $item) {
+                    $invoice_data['items'][] = $item->getData();
+                }
+                $invoice_data['order_id'] = (int) $order_id;
+                $data[] = $invoice_data;
+            }
+        }
+        return $data;
     }
 
     /**
