@@ -534,6 +534,8 @@ class Index extends Action
      */
     private function getOptions()
     {
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+
         $websites = [];
         foreach ($this->storeManager->getWebsites() as $website) {
             $websites[] = ['value' => $website->getId(), 'label' => $website->getName()];
@@ -542,11 +544,39 @@ class Index extends Action
         foreach ($this->storeManager->getStores() as $store) {
             $stores[] = ['value' => $store->getId(), 'label' => $store->getName()];
         }
+
+        // Get active payment methods
+        $paymentMethods = [];
+        $paymentConfig = $objectManager->get(\Magento\Payment\Model\Config::class);
+        foreach ($paymentConfig->getActiveMethods() as $code => $method) {
+            $paymentMethods[] = [
+                'value' => $code,
+                'label' => $method->getTitle() ?: $code,
+            ];
+        }
+
+        // Get active shipping methods
+        $shippingMethods = [];
+        $shippingConfig = $objectManager->get(\Magento\Shipping\Model\Config::class);
+        $scopeConfig = $objectManager->get(\Magento\Framework\App\Config\ScopeConfigInterface::class);
+        foreach ($shippingConfig->getActiveCarriers() as $code => $carrier) {
+            $title = $scopeConfig->getValue(
+                'carriers/' . $code . '/title',
+                \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+            );
+            $shippingMethods[] = [
+                'value' => $code,
+                'label' => $title ?: $code,
+            ];
+        }
+
         return [
             "companies" => $this->getCompanies(),
             "groups" => $this->collection->toOptionArray(),
             "websites" => $websites,
             "stores" => $stores,
+            "payment_methods" => $paymentMethods,
+            "shipping_methods" => $shippingMethods,
             "allowed_countries" => $this->allowedCountries->getAllowedCountries(),
         ];
     }
@@ -848,6 +878,15 @@ class Index extends Action
             $response = null;
             $path = $this->getRequest()->getParam('path');
             switch ($path) {
+                case 'product':
+                    $sku = $this->getRequest()->getParam('sku');
+                    if ($sku) {
+                        $product = $this->productRepository->get($sku);
+                        $resultRedirect = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_REDIRECT);
+                        return $resultRedirect->setUrl($product->getProductUrl());
+                    }
+                    $result = $this->resultJsonFactory->create();
+                    return $result->setHttpResponseCode(400)->setData(['error' => true, 'message' => 'SKU parameter is required']);
                 case 'script':
                     $punchoutId = $this->session->getPunchoutId();
                     if (empty($punchout_id)) {
@@ -1072,6 +1111,11 @@ class Index extends Action
                 ->setLastname($orderData['lastname'])
                 ->setEmail($orderData['email'])
                 ->setPassword($orderData['password']);
+
+            // assign customer to group if group id is provided in order data
+            if (isset($orderData['group_id'])) {
+                $customer->setGroupId($orderData['group_id']);
+            }
 
             $customer->save();
         }
