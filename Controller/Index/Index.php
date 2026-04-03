@@ -1255,6 +1255,62 @@ class Index extends Action
                 continue;
             }
             $invoices = $order->getInvoiceCollection();
+
+            // Collect extra fee totals from order (e.g. MageWorx MultiFees)
+            $extraFees = [];
+            $extensionAttributes = $order->getExtensionAttributes();
+            if ($extensionAttributes) {
+                // MageWorx MultiFees
+                if (method_exists($extensionAttributes, 'getMageworxFeeDetails')) {
+                    $feeDetails = $extensionAttributes->getMageworxFeeDetails();
+                    if (!empty($feeDetails)) {
+                        $decoded = is_string($feeDetails) ? json_decode($feeDetails, true) : $feeDetails;
+                        if (is_array($decoded)) {
+                            foreach ($decoded as $fee) {
+                                $extraFees[] = [
+                                    'label' => $fee['title'] ?? ($fee['label'] ?? 'Extra Fee'),
+                                    'amount' => $fee['price'] ?? ($fee['amount'] ?? 0),
+                                    'tax' => $fee['tax'] ?? 0,
+                                ];
+                            }
+                        }
+                    }
+                }
+                // MageWorx MultiFees amount field
+                if (empty($extraFees) && method_exists($extensionAttributes, 'getMageworxFeeAmount')) {
+                    $feeAmount = $extensionAttributes->getMageworxFeeAmount();
+                    if (!empty($feeAmount) && (float) $feeAmount > 0) {
+                        $extraFees[] = [
+                            'label' => 'Extra Fee',
+                            'amount' => (float) $feeAmount,
+                        ];
+                    }
+                }
+            }
+
+            // Fallback: check order data directly for fee fields
+            if (empty($extraFees)) {
+                $feeAmount = $order->getData('mageworx_fee_amount') ?: $order->getData('fee_amount');
+                $feeDetails = $order->getData('mageworx_fee_details') ?: $order->getData('fee_details');
+                if (!empty($feeDetails)) {
+                    $decoded = is_string($feeDetails) ? json_decode($feeDetails, true) : $feeDetails;
+                    if (is_array($decoded)) {
+                        foreach ($decoded as $fee) {
+                            $extraFees[] = [
+                                'label' => $fee['title'] ?? ($fee['label'] ?? 'Extra Fee'),
+                                'amount' => $fee['price'] ?? ($fee['amount'] ?? 0),
+                                'tax' => $fee['tax'] ?? 0,
+                            ];
+                        }
+                    }
+                } elseif (!empty($feeAmount) && (float) $feeAmount > 0) {
+                    $extraFees[] = [
+                        'label' => 'Extra Fee',
+                        'amount' => (float) $feeAmount,
+                    ];
+                }
+            }
+
             foreach ($invoices as $invoice) {
                 $invoice_data = $invoice->getData();
                 $invoice_data['items'] = [];
@@ -1262,6 +1318,9 @@ class Index extends Action
                     $invoice_data['items'][] = $item->getData();
                 }
                 $invoice_data['order_id'] = (int) $order_id;
+                if (!empty($extraFees)) {
+                    $invoice_data['extra_fees'] = $extraFees;
+                }
                 $data[] = $invoice_data;
             }
         }
