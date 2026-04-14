@@ -2,7 +2,8 @@
 namespace InstaPunchout\Punchout\Controller\Index;
 
 use Magento\Framework\App\RequestInterface;
-use Magento\Framework\HTTP\ClientInterface;
+use Magento\Framework\HTTP\LaminasClient;
+use Magento\Framework\HTTP\LaminasClientFactory;
 use Magento\Framework\Controller\Result\JsonFactory;
 use Magento\Framework\App\Action\Action;
 use Magento\Checkout\Model\Cart;
@@ -94,9 +95,9 @@ class Index extends Action
     private $collection;
 
     /**
-     * @var \Magento\Framework\HTTP\ClientInterface
+     * @var \Magento\Framework\HTTP\LaminasClientFactory
      */
-    protected ClientInterface $client;
+    protected LaminasClientFactory $clientFactory;
 
     /**
      * @var \Magento\Framework\App\RequestInterface
@@ -181,7 +182,7 @@ class Index extends Action
      * @param \Magento\Customer\Model\ResourceModel\Group\Collection $collection
      * @param \Magento\Directory\Model\AllowedCountries $allowedCountries
      * @param \Magento\Checkout\Model\Cart $cart
-     * @param \Magento\Framework\HTTP\ClientInterface $client
+     * @param \Magento\Framework\HTTP\LaminasClientFactory $clientFactory
      * @param \Magento\Framework\App\RequestInterface $request
      * @param \Magento\Framework\Controller\Result\JsonFactory $resultJsonFactory
      * @param \Magento\Catalog\Model\ProductRepository $productRepository
@@ -209,7 +210,7 @@ class Index extends Action
         Collection $collection,
         \Magento\Directory\Model\AllowedCountries $allowedCountries,
         Cart $cart,
-        ClientInterface $client,
+        LaminasClientFactory $clientFactory,
         RequestInterface $request,
         JsonFactory $resultJsonFactory,
         ProductRepository $productRepository,
@@ -238,7 +239,7 @@ class Index extends Action
         $this->collection = $collection;
         $this->allowedCountries = $allowedCountries;
         $this->cart = $cart;
-        $this->client = $client;
+        $this->clientFactory = $clientFactory;
         $this->resultJsonFactory = $resultJsonFactory;
         $this->request = $request;
         $this->productRepository = $productRepository;
@@ -892,8 +893,10 @@ class Index extends Action
                     if (empty($punchout_id)) {
                         $response = "";
                     } else {
-                        $this->client->get('https://punchout.cloud/punchout.js?id=' . $punchoutId);
-                        $response = $this->client->getBody();
+                        $client = $this->createHardenedClient();
+                        $client->setUri('https://punchout.cloud/punchout.js?id=' . $punchoutId);
+                        $client->setMethod(\Laminas\Http\Request::METHOD_GET);
+                        $response = $client->send()->getBody();
 
                     }
                     $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
@@ -1278,12 +1281,33 @@ class Index extends Action
      */
     private function post($url, $data)
     {
-        $this->client->setHeaders([
+        $client = $this->createHardenedClient();
+        $client->setUri($url);
+        $client->setMethod(\Laminas\Http\Request::METHOD_POST);
+        $client->setHeaders([
             'Content-Type' => 'application/json',
             'Accept' => 'application/json',
         ]);
-        $this->client->post($url, json_encode($data));
-        $res = $this->client->getBody();
-        return json_decode($res, true);
+        $client->setRawBody(json_encode($data));
+        return json_decode($client->send()->getBody(), true);
+    }
+
+    /**
+     * Build a LaminasClient with TLS verification and timeouts enforced so a
+     * network-level attacker cannot spoof punchout.cloud responses and a
+     * slow upstream cannot stall the storefront request thread. Adapter-agnostic
+     * so this works whether the install uses the Curl or Socket adapter.
+     */
+    private function createHardenedClient(): LaminasClient
+    {
+        $client = $this->clientFactory->create();
+        $client->setOptions([
+            'timeout'           => 10,
+            'connecttimeout'    => 5,
+            'maxredirects'      => 0,
+            'sslverifypeer'     => true,
+            'sslverifypeername' => true,
+        ]);
+        return $client;
     }
 }
