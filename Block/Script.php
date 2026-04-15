@@ -8,10 +8,28 @@ use Psr\Log\LoggerInterface;
 
 class Script extends Template
 {
+    /**
+     * @var ClientInterface
+     */
     protected $client;
+
+    /**
+     * @var LoggerInterface
+     */
     protected $logger;
+
+    /**
+     * @var Session
+     */
     protected $session;
 
+    /**
+     * @param Template\Context $context
+     * @param Session $session
+     * @param ClientInterface $client
+     * @param LoggerInterface $logger
+     * @param array $data
+     */
     public function __construct(
         Template\Context $context,
         Session $session,

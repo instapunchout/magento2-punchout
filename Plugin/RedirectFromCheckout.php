@@ -5,8 +5,7 @@ namespace InstaPunchout\Punchout\Plugin;
 use Magento\Framework\Controller\ResultFactory;
 
 /**
- * Class RedirectFromCheckout
- * @package InstaPunchout\Punchout\Plugin
+ * Redirects punchout sessions away from the standard checkout page back to the cart.
  */
 class RedirectFromCheckout
 {
@@ -22,6 +21,7 @@ class RedirectFromCheckout
 
     /**
      * RedirectFromCheckout constructor.
+     *
      * @param ResultFactory $resultFactory
      * @param \Magento\Customer\Model\Session $session
      */
@@ -34,6 +34,8 @@ class RedirectFromCheckout
     }
 
     /**
+     * Redirect to cart when a punchout session attempts to open the checkout page.
+     *
      * @param \Magento\Checkout\Controller\Onepage $subject
      * @param \Closure $next
      * @return \Magento\Framework\Controller\Result\Redirect|mixed
@@ -42,7 +44,9 @@ class RedirectFromCheckout
         \Magento\Checkout\Controller\Onepage $subject,
         \Closure $next
     ) {
-        if (!$this->session->getPunchoutId() || !$this->session->getPunchoutSessionId() || $this->session->getPunchoutSessionId() !== $this->session->getId()) {
+        $punchoutId = $this->session->getPunchoutId();
+        $punchoutSessionId = $this->session->getPunchoutSessionId();
+        if (!$punchoutId || !$punchoutSessionId || $punchoutSessionId !== $this->session->getId()) {
             return $next();
         }
         return $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)

@@ -167,7 +167,7 @@ class Index extends Action
      * Login constructor.
      *
      * @param \Magento\Framework\App\Action\Context $context
-     * @param \Magento\Customer\Model\Session  $session
+     * @param \Magento\Customer\Model\Session $session
      * @param \Magento\Framework\UrlFactory $urlFactory
      * @param \Magento\Customer\Model\ResourceModel\CustomerRepository $customerRepository
      * @param \Magento\Customer\Model\CustomerFactory $customerFactory
@@ -190,9 +190,11 @@ class Index extends Action
      * @param \Magento\Customer\Model\Customer $customerModel
      * @param \Magento\Framework\Controller\Result\RawFactory $resultRawFactory
      * @param \Magento\Framework\Api\SearchCriteriaBuilder $searchCriteriaBuilder
+     * @param ProductCollectionFactory $productCollectionFactory
+     * @param \Magento\Catalog\Helper\Image $imageHelper
+     * @param StockHelper $stockHelper
+     * @param OrderRepositoryInterface $orderRepository
      */
-
-
     public function __construct(
         \Magento\Framework\App\Action\Context $context,
         \Magento\Customer\Model\Session $session,
@@ -222,7 +224,6 @@ class Index extends Action
         \Magento\Catalog\Helper\Image $imageHelper,
         StockHelper $stockHelper,
         OrderRepositoryInterface $orderRepository
-
     ) {
         $this->session = $session;
         $this->url = $urlFactory->create();
@@ -265,9 +266,9 @@ class Index extends Action
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $repo = null;
         if (class_exists(\Aheadworks\Ca\Model\CompanyRepository::class)) {
-            $repo = $objectManager->get('\Aheadworks\Ca\Model\CompanyRepository');
+            $repo = $objectManager->get(\Aheadworks\Ca\Model\CompanyRepository::class);
         } elseif (class_exists(\Magento\Company\Model\CompanyRepository::class)) {
-            $repo = $objectManager->get('\Magento\Company\Model\CompanyRepository');
+            $repo = $objectManager->get(\Magento\Company\Model\CompanyRepository::class);
         } else {
             return [];
         }
@@ -282,8 +283,29 @@ class Index extends Action
         return $companies;
     }
 
-    private function getProducts($updatedAfter = null, $pageSize = 100, $currentPage = 1, $entityId = null, $storeId = null, $customerGroupId = null)
-    {
+    /**
+     * Build the products payload for the given filters.
+     *
+     * @param string|null $updatedAfter
+     * @param int $pageSize
+     * @param int $currentPage
+     * @param string|null $entityId
+     * @param int|null $storeId
+     * @param int|null $customerGroupId
+     * @return array
+     * @SuppressWarnings(PHPMD.NPathComplexity)
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     * @SuppressWarnings(PHPMD.ExcessiveNestingLevel)
+     */
+    private function getProducts(
+        $updatedAfter = null,
+        $pageSize = 100,
+        $currentPage = 1,
+        $entityId = null,
+        $storeId = null,
+        $customerGroupId = null
+    ) {
         // Resolve store
         if ($storeId === null) {
             $store = $this->storeManager->getStore();
@@ -291,11 +313,7 @@ class Index extends Action
             try {
                 $store = $this->storeManager->getStore($storeId);
             } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
-                if (!headers_sent()) {
-                    header('Content-Type: application/json');
-                }
-
-                $responseData = [
+                return [
                     'status' => 'error',
                     'message' => "Invalid Store ID: {$storeId}. " . $e->getMessage(),
                     'customerGroupId' => (int) $customerGroupId,
@@ -303,9 +321,6 @@ class Index extends Action
                     'websiteId' => null,
                     'products' => [],
                 ];
-
-                echo json_encode($responseData, JSON_PRETTY_PRINT);
-                return $responseData;
             }
         }
 
@@ -330,13 +345,17 @@ class Index extends Action
         ];
 
         try {
-            // Pagination (prefer GET if present, otherwise use method params)
-            $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : (int) $currentPage;
-            $pageSize = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : (int) $pageSize;
+            // Pagination (prefer request param if present, otherwise use method params)
+            $pageParam = $this->getRequest()->getParam('page');
+            $limitParam = $this->getRequest()->getParam('limit');
+            $currentPage = $pageParam !== null ? max(1, (int) $pageParam) : (int) $currentPage;
+            $pageSize = $limitParam !== null ? max(1, (int) $limitParam) : (int) $pageSize;
 
-            // Date filters (use GET first, fallback to $updatedAfter)
-            $updatedAfterInput = isset($_GET['updated_after']) ? trim($_GET['updated_after']) : ($updatedAfter ?: '');
-            $updatedBeforeInput = isset($_GET['updated_before']) ? trim($_GET['updated_before']) : '';
+            // Date filters (use request first, fallback to $updatedAfter)
+            $updatedAfterParam = $this->getRequest()->getParam('updated_after');
+            $updatedBeforeParam = $this->getRequest()->getParam('updated_before');
+            $updatedAfterInput = $updatedAfterParam !== null ? trim($updatedAfterParam) : ($updatedAfter ?: '');
+            $updatedBeforeInput = $updatedBeforeParam !== null ? trim($updatedBeforeParam) : '';
 
             $formattedUpdatedAtFrom = $this->formatDateForFilter($updatedAfterInput, false);
             $formattedUpdatedAtTo = $this->formatDateForFilter($updatedBeforeInput, true);
@@ -434,39 +453,11 @@ class Index extends Action
 
             foreach ($productCollection as $product) {
                 /** @var \Magento\Catalog\Model\Product $product */
-                if ($product->isSalable()) {
-                    $actuallySalableOnPage++;
-                    if (!empty($attributes)) {
-
-                        $productData = [
-                            'id' => (int) $product->getId(),
-                            'sku' => (string) $product->getSku(),
-                            'name' => (string) $product->getName(),
-                            'type_id' => (string) $product->getTypeId(),
-                            'price' => (float) $product->getPrice(),
-                            'final_price' => (float) $product->getFinalPrice(),
-                            'url' => (string) $product->getProductUrl(false),
-                            'description' => (string) $product->getDescription(),
-                            'image_url' => (string) $this->imageHelper->init($product, 'product_small_image')->getUrl(),
-                            'currency' => (string) $currency,
-                        ];
-
-                        foreach ($attributes as $attributeCode) {
-                            if ($attributeCode === '') {
-                                continue;
-                            }
-                            $value = $product->getData($attributeCode);
-                            if ($value !== null) {
-                                $productData[$attributeCode] = $value;
-                            }
-                        }
-                    } else {
-                        $productData = $product->getData();
-                        //echo json_encode($productData);
-                    }
-
-                    $availableProductsData[] = $productData;
+                if (!$product->isSalable()) {
+                    continue;
                 }
+                $actuallySalableOnPage++;
+                $availableProductsData[] = $this->buildProductData($product, $attributes, $currency);
             }
 
             $responseData['products'] = $availableProductsData;
@@ -474,7 +465,7 @@ class Index extends Action
             if (empty($availableProductsData)) {
                 $responseData['status'] = 'success';
                 $responseData['message'] = "No salable products found for the given filters.";
-            } else if ($responseData['pagination']['totalPages'] >= $currentPage) {
+            } elseif ($responseData['pagination']['totalPages'] >= $currentPage) {
                 $responseData['status'] = 'success';
                 $responseData['message'] =
                     "Showing {$actuallySalableOnPage} salable products on page {$currentPage} of " .
@@ -485,7 +476,6 @@ class Index extends Action
                 $responseData['message'] = "Out of range: Requested page {$currentPage} exceeds total pages " .
                     $responseData['pagination']['totalPages'] . ".";
                 $responseData['products'] = [];
-
             }
 
         } catch (\Exception $e) {
@@ -505,7 +495,54 @@ class Index extends Action
         return $responseData;
     }
 
-    function formatDateForFilter($dateString, $isEndDate = false)
+    /**
+     * Serialize a product row for the products.json payload.
+     *
+     * @param \Magento\Catalog\Model\Product $product
+     * @param array $attributes
+     * @param string $currency
+     * @return array
+     */
+    private function buildProductData($product, array $attributes, $currency)
+    {
+        if (empty($attributes)) {
+            return $product->getData();
+        }
+
+        $productData = [
+            'id' => (int) $product->getId(),
+            'sku' => (string) $product->getSku(),
+            'name' => (string) $product->getName(),
+            'type_id' => (string) $product->getTypeId(),
+            'price' => (float) $product->getPrice(),
+            'final_price' => (float) $product->getFinalPrice(),
+            'url' => (string) $product->getProductUrl(false),
+            'description' => (string) $product->getDescription(),
+            'image_url' => (string) $this->imageHelper->init($product, 'product_small_image')->getUrl(),
+            'currency' => (string) $currency,
+        ];
+
+        foreach ($attributes as $attributeCode) {
+            if ($attributeCode === '') {
+                continue;
+            }
+            $value = $product->getData($attributeCode);
+            if ($value !== null) {
+                $productData[$attributeCode] = $value;
+            }
+        }
+
+        return $productData;
+    }
+
+    /**
+     * Normalize a user-supplied date string into a MySQL DATETIME.
+     *
+     * @param string|null $dateString
+     * @param bool $isEndDate
+     * @return string|null
+     */
+    private function formatDateForFilter($dateString, $isEndDate = false)
     {
         if (empty($dateString)) {
             return null;
@@ -517,16 +554,12 @@ class Index extends Action
 
         // If only date part (Y-m-d) is given, adjust time for start/end of day
         if (date('H:i:s', $timestamp) === '00:00:00' && strpos($dateString, ':') === false) {
-            if ($isEndDate) {
-                return date('Y-m-d 23:59:59', $timestamp);
-            } else {
-                return date('Y-m-d 00:00:00', $timestamp);
-            }
+            return $isEndDate
+                ? date('Y-m-d 23:59:59', $timestamp)
+                : date('Y-m-d 00:00:00', $timestamp);
         }
         return date('Y-m-d H:i:s', $timestamp); // Return with original time or parsed time
     }
-
-
 
     /**
      * Retrieves various options including companies, customer groups, websites, stores, and allowed countries.
@@ -661,8 +694,11 @@ class Index extends Action
      * @return void
      * @throws LocalizedException
      */
-    private function assignCustomerToCompany(int $companyId, \Magento\Customer\Api\Data\CustomerInterface $customer, string $jobTitle)
-    {
+    private function assignCustomerToCompany(
+        int $companyId,
+        \Magento\Customer\Api\Data\CustomerInterface $customer,
+        string $jobTitle
+    ) {
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
 
         // Dynamically load CompanyManagementInterface
@@ -723,7 +759,8 @@ class Index extends Action
                 $this->cartRepository->save($quote);
             }
         } catch (\Exception $e) {
-            // If the quote is already inactive, we can ignore this error
+            // If the quote is already inactive or cannot be saved, ignore.
+            unset($e);
         }
     }
 
@@ -857,21 +894,25 @@ class Index extends Action
         }
     }
 
+    /**
+     * Build a raw JSON HTTP response for the given payload.
+     *
+     * @param mixed $response
+     * @return \Magento\Framework\Controller\Result\Raw
+     */
     public function printResponse($response)
     {
-        // return json response
         $result = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_RAW);
         return $result
             ->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true)
             ->setHeader('Content-Type', 'application/json;charset=UTF-8')
             ->setContents(json_encode($response, JSON_PRETTY_PRINT));
-
     }
 
     /**
      * Executes the controller action based on the provided request parameters.
      *
-     * @return \Magento\Framework\App\ResponseInterface|\Magento\Framework\Controller\Result\Redirect|\Magento\Framework\Controller\ResultInterface
+     * @return \Magento\Framework\Controller\ResultInterface|\Magento\Framework\App\ResponseInterface
      */
     public function execute()
     {
@@ -883,11 +924,13 @@ class Index extends Action
                     $sku = $this->getRequest()->getParam('sku');
                     if ($sku) {
                         $product = $this->productRepository->get($sku);
-                        $resultRedirect = $this->resultFactory->create(\Magento\Framework\Controller\ResultFactory::TYPE_REDIRECT);
+                        $redirectType = \Magento\Framework\Controller\ResultFactory::TYPE_REDIRECT;
+                        $resultRedirect = $this->resultFactory->create($redirectType);
                         return $resultRedirect->setUrl($product->getProductUrl());
                     }
                     $result = $this->resultJsonFactory->create();
-                    return $result->setHttpResponseCode(400)->setData(['error' => true, 'message' => 'SKU parameter is required']);
+                    return $result->setHttpResponseCode(400)
+                        ->setData(['error' => true, 'message' => 'SKU parameter is required']);
                 case 'script':
                     $punchoutId = $this->session->getPunchoutId();
                     if (empty($punchout_id)) {
@@ -940,14 +983,28 @@ class Index extends Action
                     return $this->printResponse($response);
                 case 'products.json':
                     $this->checkAuthorization();
-                    $currentPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
-                    $pageSize = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 20;
-                    $updatedAfterInput = isset($_GET['updated_after']) ? trim($_GET['updated_after']) : null;
-                    $entityId = isset($_GET['id']) ? trim($_GET['id']) : null;
-                    $targetCustomerGroupId = isset($_GET['customer_group_id']) ? trim($_GET['customer_group_id']) : null;
-                    $store_id = isset($_GET['store_id']) ? trim($_GET['store_id']) : null;
+                    $req = $this->getRequest();
+                    $pageParam = $req->getParam('page');
+                    $limitParam = $req->getParam('limit');
+                    $updatedAfterParam = $req->getParam('updated_after');
+                    $entityIdParam = $req->getParam('id');
+                    $customerGroupParam = $req->getParam('customer_group_id');
+                    $storeIdParam = $req->getParam('store_id');
+                    $currentPage = $pageParam !== null ? max(1, (int) $pageParam) : 1;
+                    $pageSize = $limitParam !== null ? max(1, (int) $limitParam) : 20;
+                    $updatedAfterInput = $updatedAfterParam !== null ? trim($updatedAfterParam) : null;
+                    $entityId = $entityIdParam !== null ? trim($entityIdParam) : null;
+                    $targetCustomerGroupId = $customerGroupParam !== null ? trim($customerGroupParam) : null;
+                    $store_id = $storeIdParam !== null ? trim($storeIdParam) : null;
 
-                    $response = $this->getProducts($updatedAfterInput, $pageSize, $currentPage, $entityId, $store_id, $targetCustomerGroupId);
+                    $response = $this->getProducts(
+                        $updatedAfterInput,
+                        $pageSize,
+                        $currentPage,
+                        $entityId,
+                        $store_id,
+                        $targetCustomerGroupId
+                    );
                     break;
             }
 
@@ -1236,6 +1293,11 @@ class Index extends Action
         return ['id' => $order_id];
     }
 
+    /**
+     * Build the invoice payload for the requested order(s).
+     *
+     * @return array
+     */
     private function getInvoices()
     {
         $order_id = $this->getRequest()->getParam('order_id');
