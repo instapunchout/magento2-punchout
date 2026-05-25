@@ -1045,9 +1045,17 @@ class Index extends Action
 
                     // login magento 2 customer
 
-                    $this->session->regenerateId();
-                    $this->session->setCustomer($customer);
-                    $this->session->regenerateId();
+                    $login_method = $res['properties']['login_method'] ?? null;
+
+                    if ($login_method === 'loginById') {
+                        // proper, full login — fires customer_login, sets HTTP auth context, builds data object
+                        $this->session->loginById((int) $customer->getId());
+                        $this->session->regenerateId();
+                    } else {
+                        $this->session->regenerateId();
+                        $this->session->setCustomer($customer);
+                        $this->session->regenerateId();
+                    }
 
                     $this->clearCart();
 
@@ -1364,10 +1372,10 @@ class Index extends Action
     {
         $client = $this->clientFactory->create();
         $client->setOptions([
-            'timeout'           => 10,
-            'connecttimeout'    => 5,
-            'maxredirects'      => 0,
-            'sslverifypeer'     => true,
+            'timeout' => 10,
+            'connecttimeout' => 5,
+            'maxredirects' => 0,
+            'sslverifypeer' => true,
             'sslverifypeername' => true,
         ]);
         return $client;
