@@ -975,6 +975,7 @@ class Index extends Action
                     $response = $this->createOrder(json_decode($body, true));
                     break;
                 case 'options.json':
+                    $this->checkAuthorization();
                     $response = $this->getOptions();
                     break;
                 case 'invoices.json':
