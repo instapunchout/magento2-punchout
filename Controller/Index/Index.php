@@ -1202,8 +1202,16 @@ class Index extends Action
         $cart->assignCustomer($customer); //Assign quote to customer
         $cart->setCustomerIsGuest(false);
 
+        // price_check: fail before placing the order if a PO price differs from the Magento price
+        // force_price: use the PO prices instead of the Magento prices
+        $priceCheck = !empty($orderData['price_check']);
+        $forcePrice = !empty($orderData['force_price']);
+        $pricedItems = [];
+
         //add items in quote
         foreach ($orderData['items'] as $item) {
+            $poPrice = isset($item['price']) ? (float) $item['price'] : null;
+            unset($item['price']);
             $product = null;
             if (isset($item['product'])) {
                 $product = $this->productFactory->create()->load($item['product']);
@@ -1216,10 +1224,28 @@ class Index extends Action
                 return ['error' => 'Required field product or sku'];
             }
             $options = $this->objectFactory->create($item);
-            $cart->addProduct(
+            $quoteItem = $cart->addProduct(
                 $product,
                 $options,
             );
+            if (is_string($quoteItem)) {
+                // addProduct failed for this line; keep the previous behaviour (line skipped)
+                // unless prices are checked/forced, where a missing line must not go unnoticed
+                if ($priceCheck || $forcePrice) {
+                    return ['error' => $quoteItem];
+                }
+                continue;
+            }
+            if ($poPrice !== null) {
+                if ($forcePrice) {
+                    $quoteItem->setCustomPrice($poPrice);
+                    $quoteItem->setOriginalCustomPrice($poPrice);
+                    // the PO price is final, don't apply cart rules on top of it
+                    $quoteItem->setNoDiscount(true);
+                    $quoteItem->getProduct()->setIsSuperMode(true);
+                }
+                $pricedItems[] = [$quoteItem, $poPrice, $product->getSku()];
+            }
         }
 
         //Set Address to quote @todo add section in order data for seperate billing and handle it
@@ -1291,6 +1317,38 @@ class Index extends Action
         // Collect totals after all shipping and payment setup
         $cart->collectTotals();
 
+        if ($priceCheck && !$forcePrice) {
+            $mismatches = [];
+            foreach ($pricedItems as [$quoteItem, $poPrice, $sku]) {
+                $qty = (float) $quoteItem->getQty();
+                if ($qty <= 0) {
+                    continue;
+                }
+                // unit price the customer would pay, after cart rules
+                $magentoPrice = ((float) $quoteItem->getRowTotal() - (float) $quoteItem->getDiscountAmount()) / $qty;
+                if (abs($magentoPrice - $poPrice) > 0.01) {
+                    $mismatches[] = [
+                        'sku' => $sku,
+                        'qty' => $qty,
+                        'po_price' => round($poPrice, 4),
+                        'magento_price' => round($magentoPrice, 4),
+                    ];
+                }
+            }
+            if (!empty($mismatches)) {
+                $cart->setIsActive(false);
+                $this->cartRepository->save($cart);
+                $lines = array_map(function ($m) {
+                    return $m['sku'] . ': PO ' . number_format($m['po_price'], 2, '.', '') . ' vs Magento ' . number_format($m['magento_price'], 2, '.', '');
+                }, $mismatches);
+                return [
+                    'error' => 'Magento 2 price mismatch: ' . implode('; ', $lines),
+                    'price_mismatches' => $mismatches,
+                    'price_check' => 'failed',
+                ];
+            }
+        }
+
         // Save the quote with all collected data
         $this->cartRepository->save($cart);
 
@@ -1299,7 +1357,13 @@ class Index extends Action
 
         // Submit the quote and create the order
         $order_id = $this->cartManagement->placeOrder($cart->getId());
-        return ['id' => $order_id];
+        $response = ['id' => $order_id];
+        if ($forcePrice) {
+            $response['price_check'] = 'forced';
+        } elseif ($priceCheck) {
+            $response['price_check'] = 'ok';
+        }
+        return $response;
     }
 
     /**
