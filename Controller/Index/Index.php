@@ -933,7 +933,7 @@ class Index extends Action
                         ->setData(['error' => true, 'message' => 'SKU parameter is required']);
                 case 'script':
                     $punchoutId = $this->session->getPunchoutId();
-                    if (empty($punchout_id)) {
+                    if (empty($punchoutId)) {
                         $response = "";
                     } else {
                         $client = $this->createHardenedClient();
