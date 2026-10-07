@@ -1423,6 +1423,8 @@ class Index extends Action
             'Content-Type' => 'application/json',
             'Accept' => 'application/json',
         ]);
+        // without an explicit enc type, Laminas sends the raw body as application/x-www-form-urlencoded
+        $client->setEncType('application/json');
         $client->setRawBody(json_encode($data));
         return json_decode($client->send()->getBody(), true);
     }
